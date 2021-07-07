@@ -2,24 +2,22 @@
 %define debug_package %{nil}
 
 %define defaultbuildroot /
-AutoProv: no
 %undefine __find_provides
-AutoReq: no
 %undefine __find_requires
 # Do not try autogenerate prereq/conflicts/obsoletes and check files
-	%undefine __check_files
+%undefine __check_files
 %undefine __find_prereq
 %undefine __find_conflicts
 %undefine __find_obsoletes
 # Be sure buildpolicy set to do nothing
 %define __spec_install_post %{nil}
 %define _missing_doc_files_terminate_build 0
-%define KERNEL_VER 3.10.0-1127.el7.x86_64
+%define KERNEL_VER 3.10.0-1160.el7.x86_64
 
 BuildArch:     x86_64
 Name:          mpss-modules
 Version:       3.8.6
-Release:       2
+Release:       4
 License:       GPLv2 
 Group:         System Environment/Kernel
 Summary:       Host driver for Intel® Xeon Phi™ coprocessor cards
@@ -29,8 +27,8 @@ Vendor:        Intel Corporation
 Source:        mpss-modules-%{version}.tar.bz2
 Patch:         mpss-modules-%{KERNEL_VER}.patch
 
-Provides:      mpss-modules-%{KERNEL_VER} = %{version}-1
-Provides:      mpss-modules-%{KERNEL_VER}(x86-64) = %{version}-1
+Provides:      mpss-modules-%{KERNEL_VER} = %{version}-%{release}
+Provides:      mpss-modules-%{KERNEL_VER}(x86-64) = %{version}-%{release}
 Requires:      /bin/sh  
 
 %description
@@ -57,19 +55,18 @@ make MIC_CARD_ARCH=k1om KERNEL_VERSION=%{KERNEL_VER} DESTDIR=${RPM_BUILD_ROOT} p
 
 %install
 rm -rf $RPM_BUILD_ROOT
+strip --strip-unneeded mic.ko
 make MIC_CARD_ARCH=k1om KERNEL_VERSION=%{KERNEL_VER} DESTDIR=${RPM_BUILD_ROOT} prefix=%{_prefix} sysconfdir=%{_sysconfdir} install
-#mkdir -p ${RPM_BUILD_ROOT}/etc/modprobe.d
-#mkdir -p ${RPM_BUILD_ROOT}/etc/sysconfig/modules
-#mkdir -p ${RPM_BUILD_ROOT}/etc/udev/rules.d
-#mkdir -p ${RPM_BUILD_ROOT}/lib/modules/%{KERNEL_VER}/extra
 
-#cp mic.conf       ${RPM_BUILD_ROOT}/etc/modprobe.d/mic.conf
-#cp mic.modules    ${RPM_BUILD_ROOT}/etc/sysconfig/modules/mic.modules
-#cp udev-mic.rules ${RPM_BUILD_ROOT}/etc/udev/rules.d/50-udev-mic.rules
-#cp mic.ko         ${RPM_BUILD_ROOT}/lib/modules/%{KERNEL_VER}/extra/mic.ko
+%if %{?rhel} > 7 
+# Install our modified version of the RHEL7 ifup/ifdown scripts
+mkdir -p ${RPM_BUILD_ROOT}/etc/mpss
+
+cp -a network-scripts ${RPM_BUILD_ROOT}/etc/mpss
+%endif
 
 %clean
-#rm -rf $RPM_BUILD_ROOT
+rm -rf $RPM_BUILD_ROOT
 
 %post -p /bin/sh
 /sbin/depmod -a %{KERNEL_VER}
@@ -82,13 +79,26 @@ make MIC_CARD_ARCH=k1om KERNEL_VERSION=%{KERNEL_VER} DESTDIR=${RPM_BUILD_ROOT} p
 %attr(0755, root, root) "%{_sysconfdir}/sysconfig/modules/mic.modules"
 %attr(0644, root, root) "%{_sysconfdir}/udev/rules.d/50-udev-mic.rules"
 %attr(0644, root, root) "/lib/modules/%{KERNEL_VER}/extra/mic.ko"
+%if %{?rhel} > 7 
+%dir %attr(0755, root, root) "/etc/mpss/network-scripts/"
+%attr(0755, root, root) "/etc/mpss/network-scripts/ifdown"
+%attr(0755, root, root) "/etc/mpss/network-scripts/ifup"
+%attr(0644, root, root) "/etc/mpss/network-scripts/network"
+%attr(0644, root, root) "/etc/mpss/network-scripts/network-functions"
+%endif
 
 %files dev-%{KERNEL_VER}
 %attr(0644, root, root) "/lib/modules/%{KERNEL_VER}/scif.symvers"
 %attr(0644, root, root) "%{_prefix}/src/kernels/%{KERNEL_VER}/include/modules/scif.h"
 
 %changelog
-* Fri Oct 4 2019 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-2
+* Fri Dec 18 2020 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-4
+ - First version to support RHEL/CentOS 8.2 & 8.3 kernels
+
+* Fri Nov 13 2020 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-3
+ - Updated to support RHEL/CentOS 7.9 kernel
+
+* Tue Apr 28 2020 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-2
  - Updated to support RHEL/CentOS 7.8 kernel
 
 * Fri Oct 4 2019 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-1
