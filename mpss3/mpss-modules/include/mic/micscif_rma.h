@@ -66,6 +66,7 @@
 #include <linux/semaphore.h>
 #include <linux/kthread.h>
 #include <linux/sched.h>
+#include <linux/sched/signal.h>
 #include <linux/delay.h>
 #include <linux/wait.h>
 #include <asm/bug.h>
@@ -921,7 +922,9 @@ static inline int __scif_dec_pinned_vm_lock(struct mm_struct *mm,
 		} else {
 			down_write(&mm->mmap_sem);
 		}
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
+#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
+		mm->pinned_vm.counter -= nr_pages;
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
 		mm->pinned_vm -= nr_pages;
 #else
 		mm->locked_vm -= nr_pages;
@@ -937,7 +940,9 @@ static inline int __scif_check_inc_pinned_vm(struct mm_struct *mm,
 	if (mm && mic_ulimit_check && nr_pages) {
 		unsigned long locked, lock_limit;
 		locked = nr_pages;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
+#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
+		locked += mm->pinned_vm.counter;
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
 		locked += mm->pinned_vm;
 #else
 		locked += mm->locked_vm;
@@ -948,7 +953,9 @@ static inline int __scif_check_inc_pinned_vm(struct mm_struct *mm,
 				    locked, lock_limit);
 			return -ENOMEM;
 		} else {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
+#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
+			mm->pinned_vm.counter = locked;
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
 			mm->pinned_vm = locked;
 #else
 			mm->locked_vm = locked;

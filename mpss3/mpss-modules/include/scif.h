@@ -45,6 +45,7 @@
 #include <linux/errno.h>
 #include <linux/poll.h>
 #include <linux/pci.h>
+#include <linux/sched/mm.h>
 
 #ifdef __cplusplus
 extern "C" {

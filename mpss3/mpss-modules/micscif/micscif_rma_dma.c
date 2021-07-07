@@ -46,6 +46,11 @@
 #ifndef _MIC_SCIF_
 #include "mic_common.h"
 #endif
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+#include <linux/nmi.h>
+#endif
+
+static unsigned long timer_fired = 0;
 
 static __always_inline
 void *get_local_va(off_t off, struct reg_range_t *window, size_t len)
@@ -823,10 +828,18 @@ error:
 
 #if !defined(WINDOWS) && !defined(CONFIG_PREEMPT)
 static int softlockup_threshold = 60;
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+static void avert_softlockup(struct timer_list *t)
+{
+	timer_fired = 1;
+}
+#else
 static void avert_softlockup(unsigned long data)
 {
 	*(unsigned long*)data = 1;
 }
+#endif
 
 /*
  * Add a timer to handle the case of hogging the cpu for
@@ -839,8 +852,13 @@ static void avert_softlockup(unsigned long data)
  */
 static inline void add_softlockup_timer(struct timer_list *timer, unsigned long *data)
 {
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	timer_setup(timer, avert_softlockup, 0);
+#else
 	setup_timer(timer, avert_softlockup, (unsigned long) data);
+#endif
 	timer->expires = jiffies + usecs_to_jiffies(softlockup_threshold * 1000000 / 3);
+
 	add_timer(timer);
 }
 
@@ -873,7 +891,6 @@ int micscif_rma_list_cpu_copy(struct mic_copy_work *work)
     uint64_t src_start_offset, dst_start_offset;
 	int ret = 0;
 #if !defined(WINDOWS) && !defined(CONFIG_PREEMPT)
-	unsigned long timer_fired = 0;
 	struct timer_list timer;
 	int cpu = smp_processor_id();
 	add_softlockup_timer(&timer, &timer_fired);

@@ -1981,6 +1981,18 @@ retry:
 			}
 		}
 
+
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+		pinned_pages->nr_pages = get_user_pages_remote(
+				current,
+				mm,
+				(uint64_t)addr,
+				nr_pages,
+				!!(prot & SCIF_PROT_WRITE),
+				pinned_pages->pages,
+				pinned_pages->vma,
+				NULL);
+#else
 		pinned_pages->nr_pages = get_user_pages(
 				current,
 				mm,
@@ -1990,6 +2002,7 @@ retry:
 				0,
 				pinned_pages->pages,
 				pinned_pages->vma);
+#endif
 		up_write(&mm->mmap_sem);
 		if (nr_pages == pinned_pages->nr_pages) {
 #ifdef RMA_DEBUG
@@ -2007,7 +2020,11 @@ retry:
 				/* Roll back any pinned pages */
 				for (i = 0; i < pinned_pages->nr_pages; i++) {
 					if (pinned_pages->pages[i])
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+						put_page(pinned_pages->pages[i]);
+#else
 						page_cache_release(pinned_pages->pages[i]);
+#endif
 				}
 				prot &= ~SCIF_PROT_WRITE;
 				try_upgrade = false;
@@ -2436,13 +2453,13 @@ scif_put_pages(struct scif_range *pages)
 	int ret;
 	struct reg_range_t *window = pages->cookie;
 	struct endpt *ep = (struct endpt *)window->ep;
-	if (atomic_read(&(&(ep->ref_count))->refcount) > 0) {
+	if (atomic_read((atomic_t *)&(&(ep->ref_count))->refcount) > 0) {
 		kref_get(&(ep->ref_count));
 	} else {
 		WARN_ON(1);
 	}
 	ret = __scif_put_pages(pages);
-	if (atomic_read(&(&(ep->ref_count))->refcount) > 0) {
+	if (atomic_read((atomic_t *)&(&(ep->ref_count))->refcount) > 0) {
 		kref_put(&(ep->ref_count), scif_ref_rel);
 	} else {
 		//WARN_ON(1);

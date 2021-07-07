@@ -203,7 +203,11 @@ static const struct net_device_ops veth_netdev_ops = {
 	.ndo_set_multicast_list = micveth_multicast_list,
 #endif
 	.ndo_set_mac_address	= micveth_set_address,
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0)
 	.ndo_change_mtu_rh74	= micveth_change_mtu,
+#else
+	.ndo_change_mtu			= micveth_change_mtu,
+#endif
 };
 #endif
 
@@ -221,7 +225,11 @@ micveth_setup(struct net_device *dev)
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,28)
 	dev->netdev_ops = &veth_netdev_ops;
 #endif
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	dev->priv_destructor = free_netdev;
+#else
 	dev->destructor = free_netdev;
+#endif
 
 	/* Fill in device structure with ethernet-generic values. */
 	dev->mtu = (MICVETH_MAX_PACKET_SIZE);
@@ -230,8 +238,13 @@ micveth_setup(struct net_device *dev)
 	random_ether_addr(dev->dev_addr);
 }
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+static int
+micveth_validate(struct nlattr *tb[], struct nlattr *data[], struct netlink_ext_ack *extack)
+#else
 static int
 micveth_validate(struct nlattr *tb[], struct nlattr *data[])
+#endif
 {
 	if (tb[IFLA_ADDRESS]) {
 		if (nla_len(tb[IFLA_ADDRESS]) != ETH_ALEN)

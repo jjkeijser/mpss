@@ -50,7 +50,6 @@
 #include <linux/elfcore.h>
 #include <linux/slab.h>
 #include <linux/highmem.h>
-#include <linux/bootmem.h>
 #include <linux/init.h>
 #include <linux/crash_dump.h>
 #include <linux/list.h>

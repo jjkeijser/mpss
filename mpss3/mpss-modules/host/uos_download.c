@@ -811,10 +811,15 @@ exit:
 }
 
 /* Perform hardware reset of the device */
-void
-reset_timer(unsigned long arg)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+void reset_timer(struct timer_list *t)
+{
+	mic_ctx_t *mic_ctx = from_timer(mic_ctx, t, boot_timer);
+#else
+void reset_timer(unsigned long arg)
 {
 	mic_ctx_t *mic_ctx = (mic_ctx_t *)arg;
+#endif
 	uint32_t scratch2 = 0;
 	uint32_t postcode = mic_getpostcode(mic_ctx);
 
@@ -865,8 +870,12 @@ reset_timer(unsigned long arg)
 		return;
 	}
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	timer_setup(&mic_ctx->boot_timer, reset_timer, 0);
+#else
 	mic_ctx->boot_timer.function = reset_timer;
 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
+#endif
 	mic_ctx->boot_timer.expires = jiffies + HZ;
 
 	add_timer(&mic_ctx->boot_timer);
@@ -875,8 +884,12 @@ reset_timer(unsigned long arg)
 void
 adapter_wait_reset(mic_ctx_t *mic_ctx)
 {
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	timer_setup(&mic_ctx->boot_timer, reset_timer, 0);
+#else
 	mic_ctx->boot_timer.function = reset_timer;
 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
+#endif
 	mic_ctx->boot_timer.expires = jiffies + HZ;
 	mic_ctx->boot_start = jiffies;
 
@@ -1050,10 +1063,15 @@ adapter_remove(mic_ctx_t *mic_ctx)
 
 #define MIC_MAX_BOOT_TIME 180	// Maximum number of seconds to wait for boot to complete
 
-static void
-online_timer(unsigned long arg)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+static void online_timer(struct timer_list *t)
+{
+	mic_ctx_t *mic_ctx = from_timer(mic_ctx, t, boot_timer);
+#else
+static void online_timer(unsigned long arg)
 {
 	mic_ctx_t *mic_ctx = (mic_ctx_t *)arg;
+#endif
 	uint64_t delay = (jiffies - mic_ctx->boot_start) / HZ;
 
 	if (mic_ctx->state == MIC_ONLINE)
@@ -1065,19 +1083,29 @@ online_timer(unsigned long arg)
 		return;
 	}
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	timer_setup(&mic_ctx->boot_timer, online_timer, 0);
+#else
 	mic_ctx->boot_timer.function = online_timer;
 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
+#endif
 	mic_ctx->boot_timer.expires = jiffies + HZ;
+
 	add_timer(&mic_ctx->boot_timer);
 
 	if (!(delay % 5))
 		printk("Waiting for MIC %d boot %lld\n", mic_ctx->bi_id, delay);
 }
 
-static void
-boot_timer(unsigned long arg)
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+static void boot_timer(struct timer_list *t)
+{
+	mic_ctx_t *mic_ctx = from_timer(mic_ctx, t, boot_timer);
+#else
+static void boot_timer(unsigned long arg)
 {
 	mic_ctx_t *mic_ctx = (mic_ctx_t *)arg;
+#endif
 	struct micvnet_info *vnet_info = (struct micvnet_info *) mic_ctx->bi_vethinfo;
 	uint64_t delay = (jiffies - mic_ctx->boot_start) / HZ;
 	bool timer_restart = false;
@@ -1102,17 +1130,26 @@ boot_timer(unsigned long arg)
 		timer_restart = (mic_ctx->state != MIC_ONLINE)? true: false;
 
 	if (timer_restart) {
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+		timer_setup(&mic_ctx->boot_timer, boot_timer, 0);
+#else
 		mic_ctx->boot_timer.function = boot_timer;
 		mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
+#endif
 		mic_ctx->boot_timer.expires = jiffies + HZ;
 
 		add_timer(&mic_ctx->boot_timer);
 		return;
 	}
 
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	timer_setup(&mic_ctx->boot_timer, online_timer, 0);
+#else
 	mic_ctx->boot_timer.function = online_timer;
 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
+#endif
 	mic_ctx->boot_timer.expires = jiffies + HZ;
+
 	add_timer(&mic_ctx->boot_timer);
 
 	printk("MIC %d Network link is up\n", mic_ctx->bi_id);
@@ -1166,8 +1203,12 @@ ioremap_work(struct work_struct *work)
 int
 adapter_post_boot_device(mic_ctx_t *mic_ctx)
 {
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	timer_setup(&mic_ctx->boot_timer, boot_timer, 0);
+#else
 	mic_ctx->boot_timer.function = boot_timer;
 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
+#endif
 	mic_ctx->boot_timer.expires = jiffies + HZ;
 	mic_ctx->boot_start = jiffies;
 
@@ -1497,7 +1538,9 @@ adapter_init_device(mic_ctx_t *mic_ctx)
 	mutex_init (&mic_ctx->state_lock);
 	init_waitqueue_head(&mic_ctx->resetwq);
 	init_waitqueue_head(&mic_ctx->ioremapwq);
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,14,0)
 	init_timer(&mic_ctx->boot_timer);
+#endif
 	if (!(mic_ctx->resetworkq = __mic_create_singlethread_workqueue("RESET WORK")))
 		return -ENOMEM;
 	if (!(mic_ctx->ioremapworkq = __mic_create_singlethread_workqueue("IOREMAP_WORK"))) {

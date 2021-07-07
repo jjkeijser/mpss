@@ -42,7 +42,9 @@
 #include "mic/mic_virtio.h"
 
 #define SECTOR_SHIFT		9
+#ifndef SECTOR_SIZE
 #define SECTOR_SIZE		(1UL << SECTOR_SHIFT)
+#endif
 #define VIRTIO_BLK_QUEUE_SIZE		128
 #define DISK_SEG_MAX			(VIRTIO_BLK_QUEUE_SIZE - 2)
 
@@ -79,6 +81,50 @@ struct vhost_blk_io {
 
 static LIST_HEAD(write_queue);
 static LIST_HEAD(read_queue);
+
+
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
+
+/* replacement functions for vfs_readv,vfs_writev which were removed from kernel 4+ */
+
+
+ssize_t vfs_readv(struct file *file, const struct iovec __user *vec,
+          unsigned long vlen, loff_t *pos, rwf_t flags)
+{
+    struct iovec iovstack[UIO_FASTIOV];
+    struct iovec *iov = iovstack;
+    struct iov_iter iter;
+    ssize_t ret; 
+
+    ret = import_iovec(READ, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);
+    if (ret >= 0) { 
+        ret = vfs_iter_read(file, &iter, pos, flags);
+        kfree(iov);
+    }    
+
+    return ret; 
+}
+
+static ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,
+           unsigned long vlen, loff_t *pos, rwf_t flags)
+{
+    struct iovec iovstack[UIO_FASTIOV];
+    struct iovec *iov = iovstack;
+    struct iov_iter iter;
+    ssize_t ret;
+
+    ret = import_iovec(WRITE, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);
+    if (ret >= 0) {
+        file_start_write(file);
+        ret = vfs_iter_write(file, &iter, pos, flags);
+        file_end_write(file);
+        kfree(iov);
+    }
+    return ret;
+}
+
+#endif
+
 
 static void
 cleanup_vblk_workqueue(struct vhost_blk_io *vbio, struct vhost_virtqueue *vq)
@@ -153,12 +199,20 @@ static void handle_io_work(struct work_struct *work)
 	  for (iov = vbio->iov; iov < &vbio->iov[vbio->nvecs]; iov++) {
 		iov->iov_base = mic_addr_in_host(aper_va, iov->iov_base);
 	  }
-		ret = vfs_writev(vbio->file, vbio->iov, vbio->nvecs, &pos);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
+        ret = vfs_writev(vbio->file, vbio->iov, vbio->nvecs, &pos, 0);
+#else
+        ret = vfs_writev(vbio->file, vbio->iov, vbio->nvecs, &pos);
+#endif
 	} else {
 	  for (iov = vbio->iov; iov < &vbio->iov[vbio->nvecs]; iov++) {
 		iov->iov_base = mic_addr_in_host(aper_va, iov->iov_base);
 	  }
-		ret = vfs_readv(vbio->file, vbio->iov, vbio->nvecs, &pos);
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
+        ret = vfs_readv(vbio->file, vbio->iov, vbio->nvecs, &pos, 0);
+#else
+        ret = vfs_readv(vbio->file, vbio->iov, vbio->nvecs, &pos);
+#endif
 	}
 	status = (ret < 0) ? VIRTIO_BLK_S_IOERR : VIRTIO_BLK_S_OK;
 	if (vbio->head != -1) {
@@ -475,7 +529,9 @@ static long vhost_blk_set_backend(struct vhost_blk *vblk)
 	writel(DISK_SEG_MAX, &vb_shared->blk_config.seg_max);
 	writel(SECTOR_SIZE, &vb_shared->blk_config.blk_size);
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
+	ret = vfs_getattr(&vblk->virtblk_file->f_path, &stat, STATX_BASIC_STATS, AT_STATX_SYNC_AS_STAT);
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0))
 	ret = vfs_getattr(&vblk->virtblk_file->f_path, &stat);
 #else
 	ret = vfs_getattr(vblk->virtblk_file->f_path.mnt,

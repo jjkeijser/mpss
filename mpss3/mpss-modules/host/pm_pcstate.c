@@ -45,20 +45,25 @@
 //few helper functions
 int pm_reg_read(mic_ctx_t *mic_ctx, uint32_t regoffset) {
 	uint32_t regval = 0;
-if (mic_ctx->bi_family == FAMILY_ABR)
-	regval = DBOX_READ(mic_ctx->mmio.va, regoffset);
-else if (mic_ctx->bi_family == FAMILY_KNC)
-	regval = SBOX_READ(mic_ctx->mmio.va, regoffset);
+	if (mic_ctx->bi_family == FAMILY_ABR)
+		regval = DBOX_READ(mic_ctx->mmio.va, regoffset);
+	else {
+		if (mic_ctx->bi_family == FAMILY_KNC)
+			regval = SBOX_READ(mic_ctx->mmio.va, regoffset);
+	}
 
 	return regval;
 }
 
 int pm_reg_write(uint32_t value, mic_ctx_t *mic_ctx, uint32_t regoffset) {
 	int err = 0;
-if (mic_ctx->bi_family == FAMILY_ABR)
-	DBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
-else if (mic_ctx->bi_family == FAMILY_KNC)
-	SBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
+
+	if (mic_ctx->bi_family == FAMILY_ABR)
+		DBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
+	else {
+		 if (mic_ctx->bi_family == FAMILY_KNC)
+			SBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
+	}
 
 	return err;
 }

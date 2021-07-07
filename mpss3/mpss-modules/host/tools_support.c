@@ -64,7 +64,12 @@ mic_unpin_user_pages(struct page **pages, uint32_t nf_pages)
 		for (j = 0; j < nf_pages; j++) {
 			if (pages[j]) {
 				SetPageDirty(pages[j]);
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+				put_page(pages[j]);
+#else
 				page_cache_release(pages[j]);
+#endif
+
 			}
 		}
 		kfree(pages);
@@ -89,8 +94,14 @@ mic_pin_user_pages (void *data, struct page **pages, uint32_t len, int32_t *nf_p
 
 	// pin the user pages; use semaphores on linux for doing the same
 	down_read(&current->mm->mmap_sem);
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+	*nf_pages = (int32_t)get_user_pages_remote(current, current->mm, (uint64_t)data,
+			  nr_pages, PROT_WRITE, pages, NULL, NULL);
+#else
 	*nf_pages = (int32_t)get_user_pages(current, current->mm, (uint64_t)data,
 			  nr_pages, PROT_WRITE, 1, pages, NULL);
+#endif
+
 	up_read(&current->mm->mmap_sem);
 
 	// compare if the no of final pages is equal to no of requested pages

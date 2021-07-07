@@ -20,6 +20,7 @@
 #include <linux/virtio_config.h>
 #include <linux/virtio_ring.h>
 #include <asm/atomic.h>
+#include <asm/barrier.h>
 
 /* This is for zerocopy, used buffer len is set to 1 when lower device DMA
  * done */
@@ -45,7 +46,11 @@ struct vhost_work {
 struct vhost_poll {
 	poll_table                table;
 	wait_queue_head_t        *wqh;
+#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0))
+	wait_queue_entry_t        wait;
+#else
 	wait_queue_t              wait;
+#endif
 	struct vhost_work	  work;
 	unsigned long		  mask;
 	struct vhost_dev	 *dev;
@@ -240,6 +245,10 @@ enum {
 
 static inline int vhost_has_feature(struct vhost_dev *dev, int bit)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
+	unsigned acked_features = smp_load_acquire(&(dev->acked_features));
+#else
+
 #ifdef RHEL_RELEASE_CODE
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
 	unsigned acked_features = rcu_dereference_index_check(dev->acked_features, rcu_read_lock_held());
@@ -252,6 +261,8 @@ static inline int vhost_has_feature(struct vhost_dev *dev, int bit)
 #else
 	unsigned acked_features = __rcu_dereference_index_check(dev->acked_features, rcu_read_lock_held());
 #endif
+#endif
+
 #endif
 	return acked_features & (1 << bit);
 }

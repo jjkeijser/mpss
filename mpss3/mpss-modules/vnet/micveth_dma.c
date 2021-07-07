@@ -910,7 +910,12 @@ static const struct net_device_ops micvnet_netdev_ops = {
 	.ndo_set_multicast_list = micvnet_multicast_list,
 #endif
 	.ndo_set_mac_address	= micvnet_set_address,
+#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0)
 	.ndo_change_mtu_rh74	= micvnet_change_mtu,
+#else
+	.ndo_change_mtu			= micvnet_change_mtu,
+#endif
+
 };
 
 static void
@@ -920,7 +925,11 @@ micvnet_setup(struct net_device *dev)
 
 	/* Initialize the device structure. */
 	dev->netdev_ops = &micvnet_netdev_ops;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
+    dev->priv_destructor = free_netdev;
+#else
 	dev->destructor = free_netdev;
+#endif
 
 	/* Fill in device structure with ethernet-generic values. */
 	dev->mtu = MICVNET_MAX_MTU;

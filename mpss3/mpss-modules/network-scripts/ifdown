@@ -1,0 +1,182 @@
+#!/bin/bash
+# Network Interface Configuration System
+# Copyright (c) 1996-2009 Red Hat, Inc. all rights reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
+. /etc/init.d/functions
+. /etc/mpss/network-scripts/network-functions
+. /etc/mpss/network-scripts/network
+
+cd /etc/sysconfig/network-scripts
+
+CONFIG=${1}
+
+[ -z "${CONFIG}" ] && {
+    echo $"Usage: ifdown <configuration>" >&2
+    exit 1
+}
+
+need_config "${CONFIG}"
+
+[ -f "${CONFIG}" ] || {
+    echo $"Usage: ifdown <configuration>" >&2
+    exit 1
+}
+
+source_config
+
+# Check to make sure the device is actually up
+check_device_down ${DEVICE} && [ "$BOOTPROTO" != "dhcp" -a "$BOOTPROTO" != "bootp" ] && [ -n "$VLAN" -a "$VLAN" != "yes" ] && exit 0
+
+if [ -n "${TEAM_MASTER}" ] && [ ! "${DEVICETYPE}" = "TeamPort" ] && [ -x ./ifdown-TeamPort ]; then
+    ./ifdown-TeamPort ${CONFIG} $2
+fi
+
+if [ "${SLAVE}" != "yes" -o -z "${MASTER}" ]; then
+    if [ -n "${HWADDR}" -a -z "${MACADDR}" ]; then
+        FOUNDMACADDR=$(get_hwaddr ${REALDEVICE})
+        if [ -n "${FOUNDMACADDR}" -a "${FOUNDMACADDR}" != "${HWADDR}" ]; then
+            NEWCONFIG=$(get_config_by_hwaddr ${FOUNDMACADDR})
+            if [ -n "${NEWCONFIG}" ]; then
+                eval $(LANG=C grep -F "DEVICE=" $NEWCONFIG)
+            else
+                net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
+                exit 1
+            fi
+            if [ -n "${NEWCONFIG}" -a "${NEWCONFIG##*/}" != "${CONFIG##*/}" -a "${DEVICE}" = "${REALDEVICE}" ]; then
+                exec /sbin/ifdown ${NEWCONFIG}
+            else
+                net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
+                exit 1
+            fi
+        fi
+    fi
+fi
+
+if is_bonding_device ${DEVICE} ; then
+    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=['\"]\?${DEVICE}['\"]\?\([[:space:]#]\|$\)" /etc/mpss/network-scripts/ifcfg-*) ; do
+        is_ignored_file "$device" && continue
+        /sbin/ifdown ${device##*/}
+    done
+    for arg in $BONDING_OPTS ; do
+        key=${arg%%=*};
+        [[ "${key}" != "arp_ip_target" ]] && continue
+        value=${arg##*=};
+        if [ "${value:0:1}" != "" ]; then
+            OLDIFS=$IFS;
+            IFS=',';
+            for arp_ip in $value; do
+                if grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
+                    echo "-$arp_ip" > /sys/class/net/${DEVICE}/bonding/arp_ip_target
+                fi
+            done
+            IFS=$OLDIFS;
+        else
+            value=${value#+};
+            if grep -q $value /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
+                echo "-$value" > /sys/class/net/${DEVICE}/bonding/arp_ip_target
+            fi
+        fi
+    done
+fi
+
+#/etc/mpss/network-scripts/ifdown-ipv6 ${CONFIG}
+
+retcode=0
+
+for VER in "" 6 ; do
+    if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
+        dhcpid=$(cat /var/run/dhclient$VER-${DEVICE}.pid)
+        generate_lease_file_name $VER
+        if is_true "$DHCPRELEASE";  then
+            /sbin/dhclient -r -lf ${LEASEFILE} -pf /var/run/dhclient$VER-${DEVICE}.pid ${DEVICE} >/dev/null 2>&1
+            retcode=$?
+        else
+            kill $dhcpid >/dev/null 2>&1
+            retcode=$?
+            reason=STOP$VER interface=${DEVICE} /sbin/dhclient-script
+        fi
+        if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
+            rm -f /var/run/dhclient$VER-${DEVICE}.pid
+            kill $dhcpid >/dev/null 2>&1
+        fi  
+    fi
+done
+
+# we can't just delete the configured address because that address
+# may have been changed in the config file since the device was
+# brought up.  Flush all addresses associated with this
+# instance instead.
+if [ -d "/sys/class/net/${REALDEVICE}" ]; then
+    LABEL=
+    if [ "${REALDEVICE}" != "${DEVICE}" ]; then
+        LABEL="label ${DEVICE}"
+    fi
+    if [ "${REALDEVICE}" = "lo" ]; then
+        TIMEOUT=""
+        [ -x /usr/bin/timeout ] && TIMEOUT="/usr/bin/timeout --signal=SIGQUIT 4"
+        $TIMEOUT ip addr flush dev ${REALDEVICE} ${LABEL} scope global 2>/dev/null
+        $TIMEOUT ip addr flush dev ${REALDEVICE} ${LABEL} scope host 2>/dev/null
+    else
+        ip addr flush dev ${REALDEVICE} ${LABEL} scope global 2>/dev/null
+        ip -4 addr flush dev ${REALDEVICE} ${LABEL} scope host 2>/dev/null
+    fi
+
+    if [ "${SLAVE}" = "yes" -a -n "${MASTER}" ]; then
+        echo "-${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
+    fi
+
+    if [ "${REALDEVICE}" = "${DEVICE}" ]; then
+        ip link set dev ${DEVICE} down 2>/dev/null
+    fi
+fi
+[ "$retcode" = "0" ] && retcode=$?
+
+if [ -n "${BRIDGE}" ] && [ -x /usr/sbin/brctl ]; then
+    /sbin/ip link set dev ${DEVICE} down
+    /usr/sbin/brctl delif -- ${BRIDGE} ${DEVICE}
+    # Upon removing a device from a bridge,
+    # it's necessary to make radvd reload its config
+    [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
+    if [ -d /sys/class/net/${BRIDGE}/brif ] && [ $(ls -1 /sys/class/net/${BRIDGE}/brif | wc -l) -eq 0 ]; then
+        /usr/sbin/brctl delbr -- ${BRIDGE}
+    fi
+fi
+
+if [ "${TYPE}" = "Tap" ]; then
+    TUNMODE="mode tap"
+    [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
+    ip tuntap del ${TUNMODE} dev ${DEVICE} >/dev/null
+fi
+
+if [ -n "${TEAM_CONFIG}" ] && [ ! "${DEVICETYPE}" = "Team" ] && [ -x ./ifdown-Team ]; then
+    ./ifdown-Team ${CONFIG} $2
+fi
+
+# wait up to 5 seconds for device to actually come down...
+waited=0
+while ! check_device_down ${DEVICE} && [ "$waited" -lt 50 ] ; do
+    sleep 0.01
+    waited=$(($waited+1))
+done
+
+if [ -n "$VLAN" ]; then
+    # 802.1q VLAN
+    if [ -f /proc/net/vlan/${DEVICE} ]; then
+        ip link delete ${DEVICE} type vlan
+    fi
+fi
+
+exit $retcode
