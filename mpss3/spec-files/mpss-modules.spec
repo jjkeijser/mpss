@@ -12,12 +12,12 @@
 # Be sure buildpolicy set to do nothing
 %define __spec_install_post %{nil}
 %define _missing_doc_files_terminate_build 0
-%define KERNEL_VER 3.10.0-1160.el7.x86_64
+%define KERNEL_VER 4.18.0-193.el8.x86_64
 
 BuildArch:     x86_64
 Name:          mpss-modules
 Version:       3.8.6
-Release:       4
+Release:       5
 License:       GPLv2 
 Group:         System Environment/Kernel
 Summary:       Host driver for Intel® Xeon Phi™ coprocessor cards
@@ -92,6 +92,9 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0644, root, root) "%{_prefix}/src/kernels/%{KERNEL_VER}/include/modules/scif.h"
 
 %changelog
+* Mon Feb 8 2021 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-5
+ - Fix issue where card did not recover from shutdown
+
 * Fri Dec 18 2020 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-4
  - First version to support RHEL/CentOS 8.2 & 8.3 kernels
 
