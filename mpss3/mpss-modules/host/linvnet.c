@@ -203,7 +203,7 @@ static const struct net_device_ops veth_netdev_ops = {
 	.ndo_set_multicast_list = micveth_multicast_list,
 #endif
 	.ndo_set_mac_address	= micveth_set_address,
-	.ndo_change_mtu		= micveth_change_mtu,
+	.ndo_change_mtu_rh74	= micveth_change_mtu,
 };
 #endif
 
