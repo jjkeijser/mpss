@@ -1,0 +1,5 @@
+#!/bin/sh
+
+if [ ! -d /sys/class/mic ]; then
+	exec /sbin/modprobe mic >/dev/null 2>&1
+fi

@@ -1,0 +1,3 @@
+obj-m += intel_micveth.o
+
+intel_micveth-objs := micveth.o micveth_param.o micveth_dma.o

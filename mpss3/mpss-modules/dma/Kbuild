@@ -1,0 +1,5 @@
+ccflags-y += -DDMA_CHAN_MIC_OWNER=0
+
+obj-m := dma_module.o
+
+dma_module-objs := mic_dma_lib.o mic_dma_md.o mic_sbox_md.o

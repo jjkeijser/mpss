@@ -1,0 +1,21 @@
+obj-m := ringbuffer.o
+obj-m += micscif.o
+
+ringbuffer-objs := micscif_rb.o
+
+micscif-objs := micscif_main.o
+micscif-objs += micscif_sysfs.o
+micscif-objs += micscif_smpt.o
+micscif-objs += micscif_intr.o
+micscif-objs += micscif_api.o
+micscif-objs += micscif_fd.o
+micscif-objs += micscif_nodeqp.o
+micscif-objs += micscif_va_node.o
+micscif-objs += micscif_va_gen.o
+micscif-objs += micscif_rma.o
+micscif-objs += micscif_rma_list.o
+micscif-objs += micscif_rma_dma.o
+micscif-objs += micscif_debug.o
+micscif-objs += micscif_ports.o
+micscif-objs += micscif_select.o
+micscif-objs += micscif_nm.o

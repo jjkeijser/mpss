@@ -1,0 +1,6 @@
+obj-m := micras.o
+
+micras-y := micras_main.o micras_common.o
+micras-y += micras_core.o micras_uncore.o micras_elog.o
+micras-$(CONFIG_ML1OM) += micras_knf.o
+micras-$(CONFIG_MK1OM) += micras_knc.o micras_pm.o
