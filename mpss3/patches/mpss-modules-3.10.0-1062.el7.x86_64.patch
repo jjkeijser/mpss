@@ -1,0 +1,50 @@
+diff -Naur mpss-modules-3.8.5/host/linux.c mpss-modules-3.8.5jjk/host/linux.c
+--- mpss-modules-3.8.5/host/linux.c	2016-05-27 20:02:36.000000000 +0200
++++ mpss-modules-3.8.5jjk/host/linux.c	2019-10-04 10:29:37.955560371 +0200
+@@ -337,7 +337,7 @@
+ 			NULL, "mic%d", mic_ctx->bd_info->bi_ctx.bi_id);
+ 	err = sysfs_create_group(&mic_ctx->bd_info->bi_sysfsdev->kobj, &bd_attr_group);
+ 	mic_ctx->sysfs_state = sysfs_get_dirent(mic_ctx->bd_info->bi_sysfsdev->kobj.sd,
+-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35) && LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0))
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35) && LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
+ 				NULL,
+ #endif
+ 				"state");
+diff -Naur mpss-modules-3.8.5/host/linvnet.c mpss-modules-3.8.5jjk/host/linvnet.c
+--- mpss-modules-3.8.5/host/linvnet.c	2016-05-27 20:02:36.000000000 +0200
++++ mpss-modules-3.8.5jjk/host/linvnet.c	2019-10-04 10:29:38.019563589 +0200
+@@ -203,7 +203,7 @@
+ 	.ndo_set_multicast_list = micveth_multicast_list,
+ #endif
+ 	.ndo_set_mac_address	= micveth_set_address,
+-	.ndo_change_mtu		= micveth_change_mtu,
++	.ndo_change_mtu_rh74	= micveth_change_mtu,
+ };
+ #endif
+ 
+diff -Naur mpss-modules-3.8.5/micscif/micscif_select.c mpss-modules-3.8.5jjk/micscif/micscif_select.c
+--- mpss-modules-3.8.5/micscif/micscif_select.c	2016-05-27 20:02:36.000000000 +0200
++++ mpss-modules-3.8.5jjk/micscif/micscif_select.c	2019-10-04 10:30:26.128977902 +0200
+@@ -50,6 +50,10 @@
+ #include <linux/sched/rt.h>
+ #endif
+ 
++#ifndef set_mb
++#define set_mb(var, value)  do { (var) = (value); mb(); } while (0)
++#endif
++
+ struct poll_table_page {
+ 	struct poll_table_page *next;
+ 	struct poll_table_entry *entry;
+diff -Naur mpss-modules-3.8.5/vnet/micveth_dma.c mpss-modules-3.8.5jjk/vnet/micveth_dma.c
+--- mpss-modules-3.8.5/vnet/micveth_dma.c	2016-05-27 20:02:36.000000000 +0200
++++ mpss-modules-3.8.5jjk/vnet/micveth_dma.c	2019-10-04 10:29:38.020563639 +0200
+@@ -910,7 +910,7 @@
+ 	.ndo_set_multicast_list = micvnet_multicast_list,
+ #endif
+ 	.ndo_set_mac_address	= micvnet_set_address,
+-	.ndo_change_mtu		= micvnet_change_mtu,
++	.ndo_change_mtu_rh74	= micvnet_change_mtu,
+ };
+ 
+ static void
