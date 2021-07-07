@@ -12,7 +12,7 @@
 # Be sure buildpolicy set to do nothing
 %define __spec_install_post %{nil}
 %define _missing_doc_files_terminate_build 0
-%define KERNEL_VER 4.18.0-193.el8.x86_64
+%define KERNEL_VER 4.18.0-240.el8.x86_64
 
 BuildArch:     x86_64
 Name:          mpss-modules
