@@ -1,0 +1,13 @@
+[Unit]
+Description=MPSS suspend/resume hook
+Before=sleep.target
+StopWhenUnneeded=yes
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/etc/mpss/mpss.suspend
+ExecStop=-/etc/mpss/mpss.resume
+
+[Install]
+WantedBy=sleep.target

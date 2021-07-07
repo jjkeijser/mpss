@@ -1,0 +1,205 @@
+#!/bin/bash
+# Copyright 2010-2017 Intel Corporation.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# Disclaimer: The codes contained in these modules may be specific to
+# the Intel Software Development Platform codenamed Knights Ferry,
+# and the Intel product codenamed Knights Corner, and are not backward
+# compatible with other Intel products. Additionally, Intel will NOT
+# support the codes or instruction set in future products.
+#
+# Intel offers no warranty of any kind regarding the code. This code is
+# licensed on an "AS IS" basis and Intel is not obligated to provide
+# any support, assistance, installation, training, or other services
+# of any kind. Intel is also not obligated to provide any updates,
+# enhancements or extensions. Intel specifically disclaims any warranty
+# of merchantability, non-infringement, fitness for any particular
+# purpose, and any other warranty.
+#
+# Further, Intel disclaims all liability of any kind, including but
+# not limited to liability for infringement of any proprietary rights,
+# relating to the use of the code, even if Intel is notified of the
+# possibility of such liability. Except as expressly stated in an Intel
+# license agreement provided with this code and agreed upon with Intel,
+# no license, express or implied, by estoppel or otherwise, to any
+# intellectual property rights is granted herein.
+#
+# mpss	Start mpssd.
+#
+# chkconfig: 2345 95 05
+# description: start Intel(R) MPSS processing.
+#
+### BEGIN INIT INFO
+# Provides: mpss
+# Required-Start:
+# Required-Stop: iptables
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Intel(R) MPSS control
+# Description: Intel(R) MPSS control
+### END INIT INFO
+
+# Source function library.
+. /etc/init.d/functions
+
+# Source MPSS function library.
+. /etc/mpss/mpss.common
+
+
+load()
+{
+	echo -n $"Loading MIC module: "
+
+	mic_load_modules
+
+	retval=$?; [ $retval -eq 0 ] && success || failure
+	echo
+
+	return $retval
+}
+
+start()
+{
+	# Ensure the driver is loaded
+	load
+
+	mic_check
+	retval=$?; [ $retval -eq 0 ] || return $retval
+
+	echo -n $"Starting Intel(R) MPSS: "
+
+	if [ "`ps -e | awk '{print $4}' | grep -m 1 mpssd`" = "mpssd" ]; then
+		success
+		echo
+		micctrl -s
+		return 0;
+	fi
+
+	$exec
+	RETVAL=$?
+	if [ "$RETVAL" = "0" ]; then
+		micctrl -w 1> /dev/null
+		RETVAL=$?
+	fi
+
+	if [ $RETVAL -ne 0 ]; then
+		failure
+		echo
+	else
+		success
+		echo
+		micctrl -s
+	fi
+	return $RETVAL
+}
+
+stop()
+{
+	mic_check
+	retval=$?; [ $retval -eq 0 ] || return $retval
+
+	echo -n $"Shutting down Intel(R) MPSS: "
+
+	WAITRET=0
+	MPSSD=`pgrep -flx -P 1 $exec | grep -v grep`
+
+	if [ "$MPSSD" = "" ]; then
+		echo
+		return 0;
+	fi
+
+	MPSSDPID=`echo $MPSSD | awk '{print $1}'`
+	kill -s QUIT $MPSSDPID > /dev/null 2>/dev/null
+	RETVAL=$?
+
+	if [ $RETVAL = 0 ]; then
+		micctrl -w 1> /dev/null
+		WAITRET=$?
+		if [ $WAITRET = 9 ]; then
+			echo -n $"Shutting down Intel(R) MPSS by force: "
+			micctrl -r 1> /dev/null
+			RETVAL=$?
+			if [ $RETVAL = 0 ]; then
+				micctrl -w 1> /dev/null
+				WAITRET=$?
+			fi
+		fi
+	fi
+
+	if [ $RETVAL -ne 0 -o $WAITRET -ne 0 ]; then
+		failure
+	else
+		success
+	fi
+	echo
+	return $RETVAL
+}
+
+restart()
+{
+	stop
+	start
+}
+
+status()
+{
+	if [ "`ps -e | awk '{print $4}' | grep -m 1 mpssd`" = "mpssd" ]; then
+		echo "mpss is running"
+		STOPPED=0
+	else
+		echo "mpss is stopped"
+		STOPPED=3
+	fi
+	return $STOPPED
+}
+
+unload()
+{
+	COMMAND=`status $exec >/dev/null 2>&1`
+	if [ $? -ne 3 ]; then
+		stop
+	fi
+
+	echo -n $"Removing MIC Module: "
+
+	mic_unload_modules
+
+	retval=$?; [ $retval -eq 0 ] && success || failure
+	echo
+
+	return $retval
+}
+
+case $1 in
+	load)
+		load
+		;;
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		restart
+		;;
+	status)
+		status
+		;;
+	unload)
+		unload
+		;;
+	*)
+		echo $"Usage: $0 {start|stop|restart|status|load|unload}"
+		exit 2
+esac
+
+exit $?

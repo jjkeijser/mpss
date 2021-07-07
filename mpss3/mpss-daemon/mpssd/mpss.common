@@ -1,0 +1,245 @@
+# -*-Shell-script-*-
+# Copyright 2010-2017 Intel Corporation.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License, version 2,
+# as published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# Disclaimer: The codes contained in these modules may be specific to
+# the Intel Software Development Platform codenamed Knights Ferry,
+# and the Intel product codenamed Knights Corner, and are not backward
+# compatible with other Intel products. Additionally, Intel will NOT
+# support the codes or instruction set in future products.
+#
+# Intel offers no warranty of any kind regarding the code. This code is
+# licensed on an "AS IS" basis and Intel is not obligated to provide
+# any support, assistance, installation, training, or other services
+# of any kind. Intel is also not obligated to provide any updates,
+# enhancements or extensions. Intel specifically disclaims any warranty
+# of merchantability, non-infringement, fitness for any particular
+# purpose, and any other warranty.
+#
+# Further, Intel disclaims all liability of any kind, including but
+# not limited to liability for infringement of any proprietary rights,
+# relating to the use of the code, even if Intel is notified of the
+# possibility of such liability. Except as expressly stated in an Intel
+# license agreement provided with this code and agreed upon with Intel,
+# no license, express or implied, by estoppel or otherwise, to any
+# intellectual property rights is granted herein.
+#
+# functions     This file contains common functions to be used by MPSS scripts in
+#               the /etc/init.d directory in various Linux distributions.
+#
+
+exec="/usr/sbin/mpssd"
+sysfs="/sys/class/mic"
+
+# The below modules list shall contain each required MIC modules (also these which normally are
+# loaded via depmod or udev) due to following reasons:
+# - after unloading we check whether each module is really unloaded
+# - not always udev loads required modules after MPSS package installation
+knc_modules_v3="mic"
+knc_modules_v4="mic_x100_dma scif_bus vop_bus mic_bus cosm_bus mic_host scif vop mic_cosm"
+
+knl_modules_v4="mic_x200_dma scif_bus vop_bus cosm_bus scif vop mic_cosm mic_x200"
+
+# Auxiliary variable, which could be empty or equal to the one of above knX_modules_vX variables.
+mic_modules=""
+
+# Currently we support versions 3.x (v3) and 4.x (v4).
+mpss_version="unknown"
+
+# Currently we support either KNC or KNL. System with more than one KNx type card is not supported.
+# Variable can have values "unknown", "knc", "knl", "unsupported".
+knx_type="unknown"
+
+mic_verbose_mode=0
+
+# Error codes.
+# 0: everything ok
+# 1: generic or unspecified error (current practice)
+# 2: invalid or excess argument(s)
+# 3: unimplemented feature (for example, "reload")
+# 4: user had insufficient privilege
+# 5: program is not installed
+# 6: program is not configured
+# 7: program is not running
+# 150: hardware configuration issue
+
+mic_print()
+{
+	[ $mic_verbose_mode -eq 0 ] || echo "$@"
+}
+
+mic_check_knx_type()
+{
+	COMMAND=`lspci -n | grep 8086:225[0-9a-eA-E] >/dev/null 2>&1`
+	is_knc=$?
+	COMMAND=`lspci -n | grep 8086:2260 >/dev/null 2>&1 && lspci -n | grep 8086:2264 >/dev/null 2>&1`
+	is_knl=$?
+
+	knx_types_count=$((is_knc + is_knl))
+
+	if [ $knx_types_count -eq 0 ]; then
+		knx_type="unsupported"
+		return
+	fi
+
+	knx_type="unknown"
+
+	if [ $is_knc -eq 0 ]; then
+		knx_type="knc"
+	fi
+
+	if [ $is_knl -eq 0 ]; then
+		knx_type="knl"
+	fi
+}
+
+mic_check_mpss_version()
+{
+	MODULE_DIR=/lib/modules/`uname -r`/extra
+
+	mpss_version="unknown"
+
+	COMMAND=`modprobe -n mic_host >/dev/null 2>&1;`
+	if [ $? -eq 0 ]; then
+		mpss_version="v4"
+		return;
+	fi
+
+	COMMAND=`modprobe -n mic >/dev/null 2>&1;`
+	if [ $? -eq 0 ]; then
+		mpss_version="v3"
+		return;
+	fi
+}
+
+mic_get_valid_modules_to_load()
+{
+	mic_check_knx_type
+	case $knx_type in
+		knc)
+			;;
+		knl)
+			;;
+		unknown)
+			mic_print "No KNx card detected."
+			return 150
+			;;
+		unsupported)
+			mic_print "More than one KNx card type detected - not supported."
+			return 150
+			;;
+		*)
+			mic_print "INTERNAL ERROR: Unknown knx_type value ($0)"
+			return 1
+			;;
+	esac
+
+	mic_check_mpss_version
+	case $mpss_version in
+		v3)
+			if [ $knx_type != "knc" ]; then
+				mic_print "Installed MPSS package (3.x) supports only KNC cards."
+				return 5
+			fi
+
+			mic_modules="$knc_modules_v3"
+			;;
+		v4)
+			if [ $knx_type = "knc" ]; then
+				mic_modules="$knc_modules_v4"
+			elif [ $knx_type = "knl" ]; then
+				mic_modules="$knl_modules_v4"
+			fi
+			;;
+		unknown)
+			mic_print "MPSS package is not installed."
+			return 5
+			;;
+		*)
+			mic_print "INTERNAL ERROR: Unknown mpss_version value ($0)"
+			return 1
+			;;
+	esac
+
+	return 0
+}
+
+mic_get_valid_modules_to_unload()
+{
+	# Just assume any MIC module could be loaded. Create superset of MIC modules
+	# and filter it by loaded modules.
+	mic_modules=`echo $knc_modules_v3 $knc_modules_v4 $knl_modules_v4 | xargs -n1 | sort -u | xargs`
+	[ $? -eq 0 ] && return 0 || return 1
+}
+
+mic_load_modules()
+{
+	mic_get_valid_modules_to_load
+	retval=$?; [ $retval -eq 0 ] || return $retval
+
+	mic_print "Loading MIC module(s): $mic_modules"
+	modprobe -a $mic_modules
+
+	# Check whether loading was successful.
+	if [ ! -d "$sysfs" ]; then
+		mic_print "Initialization of MIC devices failed."
+		return 1
+	fi
+
+	return 0
+}
+
+mic_unload_modules()
+{
+	mic_get_valid_modules_to_unload
+	retval=$?; [ $retval -eq 0 ] || return $retval
+
+	mic_print "Removing MIC module(s): $mic_modules"
+	modprobe -r -q -a $mic_modules
+
+	LSMOD=`lsmod | tail -n+2 | cut -d' ' -f1`
+	COMMAND=`echo $mic_modules $LSMOD | xargs -n1 | sort | uniq -d`
+	if [ -n "$COMMAND" ]; then
+		mic_print "Unloading MIC module(s) failed."
+		return 1
+	fi
+
+	# Check whether unloading was successful.
+	if [ -d "$sysfs" ]; then
+		mic_print "Deinitialization of MIC devices failed."
+		return 1
+	fi
+
+	return 0
+}
+
+mic_check()
+{
+	if [ ! -x $exec ]; then
+		mic_print "The $exec binary is missing, check your MPSS installation."
+		return 5
+	fi
+
+	CARDS=`find "$sysfs" -maxdepth 1 -regex "$sysfs/mic[0-9]+" -printf "%f\n" 2>/dev/null`
+	if [ $? -ne 0 ]; then
+		mic_print "No MIC device exist."
+		return 1
+	fi
+
+	for card in $CARDS; do
+		if [ ! -e /etc/mpss/$card.conf ]; then
+			mic_print "MIC device ($card) is not configured."
+			return 6
+		fi
+	done
+
+	return 0
+}

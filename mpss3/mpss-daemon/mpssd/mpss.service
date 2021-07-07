@@ -1,0 +1,12 @@
+[Unit]
+Description=Intel(R) MPSS control service
+After=nfs.target nfs.service
+
+[Service]
+Type=forking
+ExecStart=/etc/init.d/mpss start
+ExecStop=/etc/init.d/mpss stop
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
