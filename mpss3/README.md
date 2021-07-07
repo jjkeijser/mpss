@@ -1,8 +1,16 @@
 # MPSS 3
 
-For the MPSS 3 stack on RHEL/CentOS 7 only the `mpss-modules` code needs to be updated.
+The MPSS 3 stack is intended for use with the first generation Intel Xeon Phi x100
+co-processors, known as "Knights Corner" or `KNC`.
 
+For the MPSS 3 stack on RHEL/CentOS 7 only the `mpss-modules` code needs to be updated.
 All other packages can be installed from the "stock" Intel MPSS 3.8.6 tarball.
+
+To use the MPSS 3 stack on RHEL/CentOS 8+ an update to the `mpss-modules` code as well
+as to the `mpss-daemon` code is required. 
+All other packages can be installed from the "stock" Intel MPSS 3.8.6 tarball, though
+some packages refer to `/usr/bin/python`, which is not present on RHEL/CentOS 8.
+These packages should be manually fixed to point to `/usr/bin/python2.7`.
 
 
 For each kernel version, the source tree is updated and tagged with that kernel version.
