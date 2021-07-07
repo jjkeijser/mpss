@@ -3918,6 +3918,7 @@ do_ifup(char *label, char *name, int saveresolv)
 {
 	pid_t pid;
 	char *ifargv[3];
+	char  ifdown[PATH_MAX] = "/sbin/ifdown";
 	char *tmpname;
 
 	if (!mpssenv.live_update)
@@ -3933,10 +3934,12 @@ do_ifup(char *label, char *name, int saveresolv)
 		fclose(stdout);
 		fclose(stderr);
 		fopen("/dev/null", "w+");
-		ifargv[0] = "/sbin/ifup";
+		if (mpssenv.confdir)
+			snprintf(ifdown, PATH_MAX, "%s/sbin/ifdown", mpssenv.confdir);
+		ifargv[0] = ifdown;
 		ifargv[1] = name;
 		ifargv[2] = NULL;
-		execve("/sbin/ifup", ifargv, NULL);
+		execve(ifargv[0], ifargv, NULL);
 		exit(errno);
 	}
 
@@ -3949,6 +3952,7 @@ do_ifdown(char *label, char *name, int saveresolv)
 {
 	pid_t pid;
 	char *ifargv[3];
+	char  ifdown[PATH_MAX] = "/sbin/ifdown";
 	char *tmpname;
 
 	if (!mpssenv.live_update)
@@ -3964,10 +3968,12 @@ do_ifdown(char *label, char *name, int saveresolv)
 		fclose(stdout);
 		fclose(stderr);
 		fopen("/dev/null", "w+");
-		ifargv[0] = "/sbin/ifdown";
+		if (mpssenv.confdir)
+			snprintf(ifdown, PATH_MAX, "%s/sbin/ifdown", mpssenv.confdir);
+		ifargv[0] = ifdown;
 		ifargv[1] = name;
 		ifargv[2] = NULL;
-		execve("/sbin/ifdown", ifargv, NULL);
+		execve(ifargv[0], ifargv, NULL);
 		exit(errno);
 	}
 

@@ -339,7 +339,7 @@ mpssenv_errstr(int err)
 	case SETENV_ENV_ISDIR:
 		return "Directory from environment not a directory";
 	case SETENV_CONFFILE_ACCESS:
-		return "File "MPSS_CONFIG_FILE" cannot be accessed";
+		return "File \"MPSS_CONFIG_FILE\" cannot be accessed";
 	case SETENV_CONFFILE_FORMAT:
 		return "Directory from environment not a directory";
 	case SETENV_CONFFILE_CONTENT:

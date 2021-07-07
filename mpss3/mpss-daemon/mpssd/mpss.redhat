@@ -121,9 +121,12 @@ stop()
 	RETVAL=$?
 
 	if [ $RETVAL = 0 ]; then
-		micctrl -w 1> /dev/null
-		WAITRET=$?
-		if [ $WAITRET = 9 ]; then
+#		micctrl -w 1> /dev/null
+#		WAITRET=$?
+#		if [ $WAITRET = 9 ]; then
+# hack: shutting down the mic adapter does not trigger the transition to 'ready'
+#       thus we force the reset
+		if [ /bin/true ]; then
 			echo -n $"Shutting down Intel(R) MPSS by force: "
 			micctrl -r 1> /dev/null
 			RETVAL=$?

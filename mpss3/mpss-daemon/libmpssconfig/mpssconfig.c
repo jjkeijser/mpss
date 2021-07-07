@@ -1430,6 +1430,8 @@ _get_miclist_present(struct mpss_env *menv, int *cnt)
 {
 	struct mic_info miclist;
 	struct mic_info *mic = &miclist;
+	struct mic_info *firstmic = mic, *tmp;
+	int id = 0;
 	struct dirent *file;
 	DIR *dp;
 
@@ -1439,14 +1441,36 @@ _get_miclist_present(struct mpss_env *menv, int *cnt)
 		return NULL;
 	}
 
+	memset(mic, 0, sizeof(struct mic_info));
+
 	while ((file = readdir(dp)) != NULL) {
 		if (strncmp(file->d_name, "mic", 3))
 			continue;
 
-		if ((mic->next = (struct mic_info *) malloc(sizeof(struct mic_info))) != NULL) {
+		if (sscanf(file->d_name, "mic%d", &id) <= 0)
+			continue;
+
+		/* list of micN devices may be out of order; find the correct spot to insert it */
+		mic = firstmic;
+		while (mic->id < id && mic->next && mic->next->id < id) {
 			mic = mic->next;
-			memset(mic, 0, sizeof(struct mic_info));
-			mic->id = atoi(&file->d_name[3]);
+		}
+
+		if ((tmp = (struct mic_info *) malloc(sizeof(struct mic_info))) != NULL) {
+			memset(tmp, 0, sizeof(struct mic_info));
+			/* two possibilities: 
+			   - First element of linked list needs a bump
+			   - we need to squeeze ourselves in 
+			*/
+			if (mic->id > id) {
+				tmp->next = mic;
+				firstmic = tmp;
+			} else {
+				tmp->next = mic->next;
+				mic->next = tmp;
+			}
+			mic = tmp;
+			mic->id = id;
 			mic->present = TRUE;
 			mic->name = mpssut_alloc_fill(file->d_name);
 			mic->config.name = mpssut_configname(menv, mic->name);
@@ -1457,7 +1481,7 @@ _get_miclist_present(struct mpss_env *menv, int *cnt)
 	}
 
 	closedir(dp);
-	return miclist.next;
+	return mic;
 }
 
 struct mic_info *

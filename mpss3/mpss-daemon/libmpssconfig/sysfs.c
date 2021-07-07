@@ -185,9 +185,8 @@ get_rootdev(struct mic_info *mic, struct mbridge *brlist)
 
 	case ROOT_TYPE_NFS:
 	case ROOT_TYPE_SPLITNFS:
-
-		char *pattern = "root=nfs: ip=XXX.XXX.XXX.XXX hwaddr=00:00:00:00:00:00 netmask=ffffffff "
-			"mtu=XXXXXX   ";
+	{
+		char *pattern = "root=nfs: ip=XXX.XXX.XXX.XXX hwaddr=00:00:00:00:00:00 netmask=ffffffff mtu=XXXXXX   ";
 		int cmdlinesize = 0;
 
 		if ((br = mpss_bridge_byname(mic->config.net.bridge, brlist)) != NULL) {
@@ -223,6 +222,7 @@ get_rootdev(struct mic_info *mic, struct mbridge *brlist)
 		}
 
 		break;
+	}
 	}
 
 	return cmdline;
