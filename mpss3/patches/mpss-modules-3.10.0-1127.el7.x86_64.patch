@@ -1,0 +1,134 @@
+diff -Naur mpss-modules-3.8.6/host/linux.c mpss-modules-3.8.6-centos7.8/host/linux.c
+--- mpss-modules-3.8.6/host/linux.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6-centos7.8/host/linux.c	2020-04-28 17:39:55.523767781 +0200
+@@ -337,7 +337,7 @@
+ 			NULL, "mic%d", mic_ctx->bd_info->bi_ctx.bi_id);
+ 	err = sysfs_create_group(&mic_ctx->bd_info->bi_sysfsdev->kobj, &bd_attr_group);
+ 	mic_ctx->sysfs_state = sysfs_get_dirent(mic_ctx->bd_info->bi_sysfsdev->kobj.sd,
+-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35) && LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0))
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35) && LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
+ 				NULL,
+ #endif
+ 				"state");
+diff -Naur mpss-modules-3.8.6/host/linvnet.c mpss-modules-3.8.6-centos7.8/host/linvnet.c
+--- mpss-modules-3.8.6/host/linvnet.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6-centos7.8/host/linvnet.c	2020-04-28 17:39:55.606771929 +0200
+@@ -203,7 +203,7 @@
+ 	.ndo_set_multicast_list = micveth_multicast_list,
+ #endif
+ 	.ndo_set_mac_address	= micveth_set_address,
+-	.ndo_change_mtu		= micveth_change_mtu,
++	.ndo_change_mtu_rh74	= micveth_change_mtu,
+ };
+ #endif
+ 
+diff -Naur mpss-modules-3.8.6/host/vmcore.c mpss-modules-3.8.6-centos7.8/host/vmcore.c
+--- mpss-modules-3.8.6/host/vmcore.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6-centos7.8/host/vmcore.c	2020-04-28 17:40:02.185101238 +0200
+@@ -161,7 +161,7 @@
+ }
+ 
+ /* Reads a page from the oldmem device from given offset. */
+-static ssize_t read_from_oldmem(mic_ctx_t *mic_ctx,
++static ssize_t mic_read_from_oldmem(mic_ctx_t *mic_ctx,
+ 				char *buf, size_t count,
+ 				u64 *ppos, int userbuf)
+ {
+@@ -270,7 +270,7 @@
+ 		tsz = nr_bytes;
+ 
+ 	while (buflen) {
+-		tmp = read_from_oldmem(mic_ctx,buffer, tsz, &start, 1);
++		tmp = mic_read_from_oldmem(mic_ctx,buffer, tsz, &start, 1);
+ 		if (tmp < 0)
+ 			return tmp;
+ 		buflen -= tsz;
+@@ -364,7 +364,7 @@
+ 		notes_section = kmalloc(max_sz, GFP_KERNEL);
+ 		if (!notes_section)
+ 			return -ENOMEM;
+-		rc = read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
++		rc = mic_read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
+ 		if (rc < 0) {
+ 			kfree(notes_section);
+ 			return rc;
+@@ -446,7 +446,7 @@
+ 		notes_section = kmalloc(max_sz, GFP_KERNEL);
+ 		if (!notes_section)
+ 			return -ENOMEM;
+-		rc = read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
++		rc = mic_read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
+ 		if (rc < 0) {
+ 			kfree(notes_section);
+ 			return rc;
+@@ -626,7 +626,7 @@
+ 	addr = elfcorehdr_addr;
+ 
+ 	/* Read Elf header */
+-	rc = read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf64_Ehdr), &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf64_Ehdr), &addr, 0);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -660,7 +660,7 @@
+ 	if (!mic_ctx->elfcorebuf)
+ 		return -ENOMEM;
+ 	addr = elfcorehdr_addr;
+-	rc = read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
+ 	if (rc < 0) {
+ 		kfree(mic_ctx->elfcorebuf);
+ 		mic_ctx->elfcorebuf = NULL;
+@@ -694,7 +694,7 @@
+ 	addr = elfcorehdr_addr;
+ 
+ 	/* Read Elf header */
+-	rc = read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf32_Ehdr), &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf32_Ehdr), &addr, 0);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -720,7 +720,7 @@
+ 	if (!mic_ctx->elfcorebuf)
+ 		return -ENOMEM;
+ 	addr = elfcorehdr_addr;
+-	rc = read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
+ 	if (rc < 0) {
+ 		kfree(mic_ctx->elfcorebuf);
+ 		mic_ctx->elfcorebuf = NULL;
+@@ -752,7 +752,7 @@
+ 	int rc=0;
+ 
+ 	addr = elfcorehdr_addr;
+-	rc = read_from_oldmem(mic_ctx, e_ident, EI_NIDENT, &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, e_ident, EI_NIDENT, &addr, 0);
+ 	if (rc < 0)
+ 		return rc;
+ 	if (memcmp(e_ident, ELFMAG, SELFMAG) != 0) {
+diff -Naur mpss-modules-3.8.6/micscif/micscif_select.c mpss-modules-3.8.6-centos7.8/micscif/micscif_select.c
+--- mpss-modules-3.8.6/micscif/micscif_select.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6-centos7.8/micscif/micscif_select.c	2020-04-28 17:39:55.613772278 +0200
+@@ -50,6 +50,10 @@
+ #include <linux/sched/rt.h>
+ #endif
+ 
++#ifndef set_mb
++#define set_mb(var, value)  do { (var) = (value); mb(); } while (0)
++#endif
++
+ struct poll_table_page {
+ 	struct poll_table_page *next;
+ 	struct poll_table_entry *entry;
+diff -Naur mpss-modules-3.8.6/vnet/micveth_dma.c mpss-modules-3.8.6-centos7.8/vnet/micveth_dma.c
+--- mpss-modules-3.8.6/vnet/micveth_dma.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6-centos7.8/vnet/micveth_dma.c	2020-04-28 17:39:55.613772278 +0200
+@@ -910,7 +910,7 @@
+ 	.ndo_set_multicast_list = micvnet_multicast_list,
+ #endif
+ 	.ndo_set_mac_address	= micvnet_set_address,
+-	.ndo_change_mtu		= micvnet_change_mtu,
++	.ndo_change_mtu_rh74	= micvnet_change_mtu,
+ };
+ 
+ static void
