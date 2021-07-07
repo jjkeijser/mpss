@@ -910,7 +910,7 @@ static const struct net_device_ops micvnet_netdev_ops = {
 	.ndo_set_multicast_list = micvnet_multicast_list,
 #endif
 	.ndo_set_mac_address	= micvnet_set_address,
-	.ndo_change_mtu		= micvnet_change_mtu,
+	.ndo_change_mtu_rh74	= micvnet_change_mtu,
 };
 
 static void
