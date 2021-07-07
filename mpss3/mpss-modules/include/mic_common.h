@@ -415,7 +415,7 @@ typedef struct _mic_ctx_t {
 	product_family_t	bi_family;
 	struct board_info	*bd_info;
 	sysfs_info_t		sysfs_info;
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
 	struct kernfs_node	*sysfs_state;
 #else
 	struct sysfs_dirent	*sysfs_state;
