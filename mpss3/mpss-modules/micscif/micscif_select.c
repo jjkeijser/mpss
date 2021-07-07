@@ -50,6 +50,10 @@
 #include <linux/sched/rt.h>
 #endif
 
+#ifndef set_mb
+#define set_mb(var, value)  do { (var) = (value); mb(); } while (0)
+#endif
+
 struct poll_table_page {
 	struct poll_table_page *next;
 	struct poll_table_entry *entry;
