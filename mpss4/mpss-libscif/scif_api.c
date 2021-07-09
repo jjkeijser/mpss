@@ -24,7 +24,7 @@
 #include "stdio.h"
 
 #include "scif.h"
-#include <scif_ioctl.h>
+#include <linux/scif_ioctl.h>
 
 #ifndef WIN32
 

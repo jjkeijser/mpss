@@ -249,6 +249,8 @@ DataFile FATFileReaderBase::getShortNameFromEntry(const array<unsigned char, ROO
                 break;
             case 8: // File extension
                 fileName.push_back(static_cast<char>('.'));
+                lc = ((entry[i] >= 'A' && entry[i] <= 'Z') && (entry[12] & 0x10)) ? 0x01 << 5 : 0x00;
+                break;
             case 9: //
             case 10: //
                 lc = ((entry[i] >= 'A' && entry[i] <= 'Z') && (entry[12] & 0x10)) ? 0x01 << 5 : 0x00;

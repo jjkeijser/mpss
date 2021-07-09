@@ -28,6 +28,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
+#include <sys/uio.h>
 #include <sys/unistd.h>
 
 extern "C" unsigned int if_nametoindex (const char *ifname);
@@ -382,7 +383,8 @@ static void *get_dp(struct mic_info *mic, int type, int idx = -1)
 	case VIRTIO_ID_NET:
 		return mpssdi->mic_net.net_dp;
 	case VIRTIO_ID_BLOCK:
-		return mpssdi->mic_virtblk[idx].block_dp;
+        /* add extra if() check to keep centos 8 C++ happy */
+		if (idx >= 0) return mpssdi->mic_virtblk[idx].block_dp;
 	}
 	mpssd_log(PERROR, "%d not found", type);
 	assert(0);

@@ -16,8 +16,6 @@
 
 #include <algorithm>
 #include <arpa/inet.h>
-#include <boost/algorithm/string.hpp>
-#include <boost/regex.hpp>
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -34,6 +32,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
+#include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/split.hpp>
+#include <boost/algorithm/string/trim.hpp>
+#include <boost/regex.hpp>
 
 #define MIC_MODULES_LOAD "modprobe -a mic_x200_dma scif_bus vop_bus cosm_bus scif vop mic_cosm mic_x200"
 #define MIC_MODULES_UNLOAD "modprobe -r mic_cosm scif vop mic_x200 mic_x200_dma vop_bus scif_bus cosm_bus"
@@ -970,6 +972,8 @@ _get_miclist_present(int *cnt)
 {
 	struct mic_info miclist;
 	struct mic_info *mic = &miclist;
+    struct mic_info *firstmic = mic, *tmp;
+    int id = 0; 
 	struct dirent *file;
 	DIR *dp;
 
@@ -983,15 +987,34 @@ _get_miclist_present(int *cnt)
 		if (strncmp(file->d_name, "mic", 3))
 			continue;
 
-		mic->next = new mic_info;
+        if (sscanf(file->d_name, "mic%d", &id) <= 0)
+            continue;
 
-		mic = mic->next;
-		mic->id = atoi(&file->d_name[3]);
-		mic->present = TRUE;
-		mic->name = file->d_name;
-		mic->config.name = mpssut_configname(mic->name);
-		mpss_clear_config(&mic->config);
-		(*cnt)++;
+        /* list of micN devices may be out of order; find the correct spot to insert it */
+        mic = firstmic;
+        while (mic->id < id && mic->next && mic->next->id < id) {
+            mic = mic->next;
+        }
+
+        tmp = new mic_info;
+        /* two possibilities: 
+           - First element of linked list needs a bump
+           - we need to squeeze ourselves in 
+        */
+        if (mic->id > id) {
+            tmp->next = mic; 
+            firstmic = tmp; 
+        } else {
+            tmp->next = mic->next;
+            mic->next = tmp;
+        }
+        mic = tmp;
+        mic->id = id;
+        mic->present = TRUE;
+        mic->name = file->d_name;
+        mic->config.name = mpssut_configname(mic->name);
+        mpss_clear_config(&mic->config);
+        (*cnt)++;
 	}
 
 	closedir(dp);

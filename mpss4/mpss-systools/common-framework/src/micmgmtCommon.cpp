@@ -25,6 +25,7 @@
 #include <csignal>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <locale>
 #include <set>
 #include <sstream>
@@ -433,8 +434,8 @@ std::string  micmgmt::hostOsVersion()
         if (!line.empty())
         {
             // Extract third space separated element
-            string::size_type  pos = line.find( " " );
-            ++pos = line.find( " ", ++pos );
+            string::size_type  pos = line.find( " " ) + 1;
+            pos = line.find( " ", ++pos );
             string::size_type  end = line.find( " ", ++pos );
 
             version = line.substr( pos, end - pos );

@@ -20,14 +20,12 @@
  * This is done for compilation of inline function in included files which
  * are not compatible with C++, using C++ keywords and pointer conversions
  */
-#pragma GCC diagnostic warning "-fpermissive"
 #define class class_
 #include <mic_common.h>
 #include <linux/virtio_blk.h>
 #include <linux/virtio_net.h>
 #include <linux/virtio_console.h>
 #undef class
-#pragma GCC diagnostic error "-fpermissive"
 
 #include <thread>
 #include <vector>

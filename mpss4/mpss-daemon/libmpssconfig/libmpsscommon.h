@@ -18,9 +18,10 @@
 #include <sys/types.h>
 #include <string>
 
-#pragma GCC diagnostic warning "-fpermissive"
+extern "C" {
 #include <mic_common.h>
-#pragma GCC diagnostic error "-fpermissive"
+}
+
 
 #ifndef MPSS_EXPORT
 #define MPSS_EXPORT __attribute__((visibility("default")))
