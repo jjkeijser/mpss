@@ -1,0 +1,12 @@
+[Unit]
+Description=Intel(R) MPSS control service
+After=nfs.target nfs.service
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/mpssd
+KillMode=process
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target

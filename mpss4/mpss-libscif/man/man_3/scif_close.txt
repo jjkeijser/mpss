@@ -1,0 +1,70 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_CLOSE(3)]
+ifndef::scif_user[SCIF_CLOSE(9)]
+=============
+:doctype: manpage
+
+NAME
+----
+scif_close - Close an endpoint.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_close(scif_epd_t* 'epd'*)*;
+
+DESCRIPTION
+-----------
+*scif_close*() closes an endpoint and performs necessary teardown of
+facilities associated with that endpoint.
+
+If 'epd' is a listening endpoint, then it will no longer accept connection
+requests on the port to which it is bound. Any pending connection requests
+are rejected.
+
+If epd is a connected endpoint, then its peer bound endpoint is disconnected,
+its port is released but still needs to be closed. RMAs which are in-process
+through 'epd' or its peer endpoint will complete before *scif_close*() returns.
+Registered windows of the local and peer endpoints are released as if
+scif_unregister() was called against each window.
+
+Closing an endpoint does not affect mappings to remote memory. These remain
+until explicitly removed by calling scif_munmap().
+
+If the peer endpoint's receive queue is not empty at the time that 'epd' is
+closed, then the peer endpoint can be passed as the endpoint parameter to
+scif_recv() until the receive queue is empty.
+
+If 'epd' is bound to a port, then the port is returned to the pool of
+available ports.
+
+'epd' is freed and may no longer be accessed.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_close*() returns 0;
+otherwise -1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_open*(3), *scif_bind*(3), *scif_listen*(3), *scif_connect*(3), *scif_accept*(3), *<scif.h>*

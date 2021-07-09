@@ -1,0 +1,107 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_POLL(3)]
+ifndef::scif_user[SCIF_POLL(9)]
+============
+:doctype: manpage
+
+NAME
+----
+scif_poll - Wait for some event on an endpoint.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int
+scif_poll(
+    struct scif_pollepd* \*'epds'*,
+    unsigned int* 'nepds'*,
+    long* 'timeout'*);*
+
+DESCRIPTION
+-----------
+*scif_poll*() waits for one of a set of endpoints to become ready to perform
+an I/O operation. *scif_poll*() exposes a subset of the functionality of the
+POSIX standard *poll*() function.
+
+The 'epds' argument specifies the endpoint descriptors to be examined and the
+events of interest for each endpoint descriptor. 'epds' is a pointer to an
+array with one member for each open endpoint descriptor of interest.
+
+The number of items in the 'epds' array is specified in 'nepds'. The 'epd' field
+of 'scif_pollepd' is an endpoint descriptor of an open endpoint. The field
+events is a bitmask specifying the events which the application is
+interested in. The field 'revents' is an output parameter, filled by the
+kernel with the events that actually occurred. The bits returned in 'revents'
+can include any of those specified in events, or one of the values
+*SCIF_POLLERR*, *SCIF_POLLHUP*, or *SCIF_POLLNVAL*. (These three bits are
+meaningless in the 'events' field, and will be set in the 'revents' field
+whenever the corresponding condition is true.)
+
+If none of the events requested (and no error) has occurred for any of the
+endpoint descriptors, then *scif_poll*() blocks until one of the events occurs.
+
+The 'timeout' argument specifies an upper limit on the time for which
+*scif_poll*() will block, in milliseconds. Specifying a negative value in
+'timeout' indicates an infinite 'timeout'.
+
+The following bits may be set in events and returned in revents:
+
+*SCIF_POLLIN*::
+Data may be received without blocking. For a connected
+endpoint, this means that *scif_recv*() may be called without blocking. For a
+listening endpoint, this means that *scif_accept*() may be called without
+blocking.
+*SCIF_POLLOUT*::
+Data may be sent without blocking. For a connected endpoint,
+this means that *scif_send*() may be called without blocking. This bit value
+has no meaning for a listening endpoint and is ignored if specified.
+
+The following bits are only returned in revents, and are ignored if set in
+events:
+
+*SCIF_POLLERR*::
+An error occurred on the endpoint.
+*SCIF_POLLHUP*::
+The connection to the peer endpoint was disconnected.
+*SCIF_POLLNVAL*::
+The specified endpoint descriptor is invalid.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_poll*() returns a non-negative value. A
+positive value indicates the total number of endpoint descriptors that have
+been selected (that is, endpoint descriptors for which the 'revents' member is
+non-zero. A value of 0 indicates that the call timed out and no endpoint
+descriptors have been selected. Otherwise -1 is returned and errno is set \
+to indicate the error.
+
+ERRORS
+------
+*EFAULT*::
+ The array given as argument was not contained in the calling program's
+  address space.
+*EINTR*::
+ A signal occurred before any requested event.
+*EINVAL*::
+ The 'nepds' argument is greater than {OPEN_MAX}.
+*ENOMEM*::
+ There was no space to allocate file descriptor tables.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*poll*(2), *<scif.h>*

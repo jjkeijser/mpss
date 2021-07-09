@@ -1,0 +1,626 @@
+#!/bin/bash
+# Copyright (c) 2017, Intel Corporation.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms and conditions of the GNU Lesser General Public License,
+# version 2.1, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+# more details.
+
+########################################################################
+# Description:
+#    A tool for gathering system and card data after a customer failure.
+########################################################################
+# Current Version:
+MYVER=1.5.1
+
+# There will be PATH redundancy here on some systems that do different sudo
+# configurations or special administrative configurations.
+export PATH="${PATH}:/usr/sbin:/sbin:/usr/bin:/usr/local/bin:/bin"
+
+# Global Values
+EXT="txt"
+SCRIPT_NAME="${0##*/}"
+SCRIPT_BASENAME="${SCRIPT_NAME%%\.*}"
+GENERAL_OUTPUT="${SCRIPT_NAME}.${EXT}"
+REAL_USER="${SUDO_USER}"
+[ -n "${REAL_USER}" ] || REAL_USER="${USER}"
+SCRIPT_START_TIME=`date -u "+%Y%m%d_%H%M%Sutc"`
+FOLDER_NAME="${SCRIPT_BASENAME}_${SCRIPT_START_TIME}"
+TAR_FILE="${FOLDER_NAME}.tgz"
+# Detect the mpss config directory and assign it to the variable "MIC_CONFIG_DIR".
+if [ -e "/usr/bin/${SCRIPT_NAME}" ]; then
+  if [ -f /etc/mpss/default.conf ]; then
+    MIC_CONFIG_DIR="/etc/mpss"
+  else
+    echo "Error:  MPSS config not found.  Run \"micctrl --initdefaults\" first."
+    exit 1
+  fi
+else
+  echo "Error:  Script must be run from /usr/bin/ directory"
+  exit 1
+fi
+
+# Detect if OS uses systemctl.
+if [ -a "/usr/bin/systemctl" ]; then
+  SYSCTL=1
+else
+  SYSCTL=''
+fi
+
+general_out() {
+  [ ! -f $GENERAL_OUTPUT ] && echo "'$SCRIPT_NAME' Version $MYVER" | tee $GENERAL_OUTPUT
+  echo $1 | tee -a $GENERAL_OUTPUT
+}
+
+# Find a place for the temporary folder if possible...
+TEMP_FOLDER=/tmp
+if [ -d "$TEMP_FOLDER" -a -r "$TEMP_FOLDER" -a -w "$TEMP_FOLDER" -a -x "$TEMP_FOLDER" ]; then
+  echo -n
+else
+  echo "Warning: ${SCRIPT_NAME}: '${TEMP_FOLDER}' is missing or doesn't have traditional permissions!"
+  echo "Attempting to use current folder..."
+  TEMP_FOLDER="."
+  if [ -d "$TEMP_FOLDER" -a -r "$TEMP_FOLDER" -a -w "$TEMP_FOLDER" -a -x "$TEMP_FOLDER" ]; then
+    echo -n
+  else
+    echo "Warning: ${SCRIPT_NAME}: '${TEMP_FOLDER}' doesn't have required permissions!"
+    home_folder="$(su $REAL_USER -c 'echo $HOME')"
+    if [ "$(pwd)" != "$home_folder" ]; then
+      echo "Attempting to use ${REAL_USER}'s home folder..."
+      TEMP_FOLDER="$home_folder"
+      if [ -d "$TEMP_FOLDER" -a -r "$TEMP_FOLDER" -a -w "$TEMP_FOLDER" -a -x "$TEMP_FOLDER" ]; then
+        echo -n
+      else
+        echo "Warning: ${SCRIPT_NAME}: '${TEMP_FOLDER}' doesn't have required permissions!"
+        fatal_exit "Was unable to determine a place to put temporary files!"
+      fi
+    else
+      fatal_exit "Current directory is ${REAL_USER}'s home folder; was unable to determine a place to put temporary files!"
+    fi
+  fi
+fi
+
+# Common Functions...
+string_list_append() {
+  if [ -n "$1" ]; then
+    echo "$1 $2"
+  else
+    echo "$2"
+  fi
+}
+
+string_list_has() {
+  for i in "$1"; do
+    [ "$i" = "$2" ] && return 0
+  done
+  return 1
+}
+
+fatal_exit() {
+  if [ -z "$1" ]; then
+    echo "FATAL ERROR: ${SCRIPT_NAME}: Unknown error!"
+  else
+    echo "FATAL ERROR: ${SCRIPT_NAME}: $1"
+  fi
+  shift
+  local arg=""
+  for arg in $*; do
+    echo "     $arg"
+  done
+  exit 255
+}
+
+usage_exit() {
+  echo "Usage: sudo $SCRIPT_NAME [-h | --help]"
+  echo "   *** This script requires passwordless ssh to cards for the cards for"
+  echo "       the root account (if different) or some features will fail."
+  echo "   *** If the host crashes while running this script data"
+  echo "       collected will be in the following folder:"
+  echo "          ${TEMP_FOLDER}/${FOLDER_NAME}"
+  echo "       Please zip the folder and send it and the host crash"
+  echo "       dump to Intel.  Remember it may be a security risk to leave the"
+  echo "       folder after you have sent the information, other users can see"
+  echo "       it's contents!  We recommend deleting it or adjusting it's"
+  echo "       permissions according to your administrators guidelines."
+  echo "       Thanks."
+
+  exit $1
+}
+
+get_host_or_ip_by_mic_number() {
+  local host="mic$1";
+
+  local ipv4_type=`micctrl mic$1 --config | awk '/Card Network IPv4:/ { print $4 }'`
+  [ "$ipv4_type" == "Static" ] && host=`micctrl mic$1 --config | awk 'addr { print $2; addr=0 } /Card Network IPv4:/ { addr=1 }'`
+  [ "$ipv4_type" == "DHCP" ] && host="`hostname`-mic$1"
+  echo "$host"
+}
+
+ping_test() {
+  local card=`get_host_or_ip_by_mic_number $1`
+  ping -c 1 -W 2 $card >/dev/null 2>&1
+  return $?
+}
+
+generate_ping_list() {
+  local list=""
+  local delim="$1"
+  shift
+  for p in $*; do
+    ping_test "${p}"
+    if [ $? -eq 0 ]; then
+      [ -n "$list" ] && list="${list}${delim}"
+      list="${list}${p}"
+    fi
+  done
+  echo "${list}"
+}
+
+test_folder_read() {
+  test -d "$1" -a -x "$1" -a -r "$1"
+  return $?
+}
+
+test_file_read() {
+  test -r "$1"
+  return $?
+}
+
+# $1 = string list in form "0:state 1:state..."; $2 index of card to get state from.
+get_card_state_from_list() {
+  local card=""
+  for card in $1; do
+    if [ "${card%%:*}" = "$2" ]; then
+      echo "${card##*:}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+get_host_user_folder() {
+  grep "^${1}:" /etc/passwd | cut -d: -f6
+}
+
+get_mic_pcie_addr_by_number() {
+  echo `udevadm info --query=path --name="/dev/mic${1}" | cut -d '/' -f 5`
+}
+
+get_safe_card_count() {
+  try=`ls -d1 /sys/class/mic/mic* | wc -l`
+  echo $try
+}
+
+# Verify it was run as root!
+if [ "$USER" != "root" ]; then
+  echo "FATAL ERROR: ${SCRIPT_NAME}: This script *MUST* be run as root, try using sudo!"
+  usage_exit 255
+fi
+
+# Parse command line and set vars or exit...
+for arg in $*; do
+  case $arg in
+    -h | --help)
+      usage_exit 0 ;;
+    *)
+      fatal_exit "Unknown parameter '$arg' on the command line!"
+  esac
+done
+
+# Manage folder for script output...
+pushd "$TEMP_FOLDER" >/dev/null
+[ $? -ne 0 ] && fatal_exit "Was unable to change the the '${TEMP_FOLDER}'!"
+[ -d "$FOLDER_NAME" ] && rm -rf "$FOLDER_NAME"
+if [ -d "$FOLDER_NAME" ]; then
+  fatal_exit "Was unable to cleanup existing folder '${TEMP_FOLDER}/${FOLDER_NAME}'!"
+fi
+mkdir "$FOLDER_NAME"
+[ $? -ne 0 ] && fatal_exit "Unable to create folder '${FOLDER_NAME}' in '${TEMP_FOLDER}'!"
+chmod 0700 "$FOLDER_NAME"
+[ $? -ne 0 ] && fatal_exit "Unable to set permissions on '${TEMP_FOLDER}/${FOLDER_NAME}'!"
+cd "$FOLDER_NAME"
+[ $? -ne 0 ] && fatal_exit "Unable to change to folder '${TEMP_FOLDER}/${FOLDER_NAME}'!"
+
+########################################################################
+# Capture static data before anything possibly destructive is called...
+general_out "${SCRIPT_NAME}: Using folder '${TEMP_FOLDER}' for temporary data storage..."
+general_out "Saving the host dmesg output..."
+dmesg >"host_dmesg.${EXT}"
+general_out "Copying messages log, mpssd log, '/etc/modprobe.d/mic_x200.conf'..."
+cp /var/log/messages "messages.${EXT}"
+cp /var/log/mpssd "mpssd.${EXT}"
+cp /etc/modprobe.d/mic_x200.conf "mic_x200.conf.${EXT}"
+general_out "Saving shell environment..."
+set >"shell_env.${EXT}"
+general_out "Copying distribution release information..."
+cat /etc/*release >"os_release_info.${EXT}"
+
+# Get micinfo and micfw information....
+general_out "Saving the micinfo and micfw output..."
+micinfo >"micinfo.${EXT}"
+micfw device-version >"micfw.${EXT}"
+
+# Get full detailed lspci listing (last resort analysis; its HUGE)...
+general_out "Saving full 'lspci' output for the entire PCIe tree..."
+lspci -vvvnnx >"lspci_full.${EXT}"
+
+# Get full lspci device tree listing (usefule for discovering parents of the cards)...
+general_out "Saving full lspci -t tree information..."
+lspci -tvnn >"lspci_tree.${EXT}"
+
+# capture SELinux config file if present...
+general_out "Copying '/etc/selinux/config' if present..."
+[ -d "/etc/selinux" ] && [ -f "/etc/selinux/config" ] && cp /etc/selinux/config "selinux_config.${EXT}"
+
+# Get network config scripts for host if found...
+general_out "Gathering host network data (ifconfig and /etc/sysconfig/network*/ifcgf*.conf)..."
+ifconfig >"ifconfig.${EXT}"
+if [ -d "/etc/sysconfig/network-scripts" ]; then
+  for cfg in `ls /etc/sysconfig/network-scripts/ifcfg*`; do
+    cp "${cfg}" "host-${cfg##*/}.${EXT}"
+  done
+elif [ -d "/etc/sysconfig/network" ]; then
+  for cfg in `ls /etc/sysconfig/network/ifcfg*`; do
+    cp "${cfg}" "host-${cfg##*/}.${EXT}"
+  done
+fi
+
+# capture host gateway and route information.
+if [ -e "/sbin/route" ]; then
+  general_out "Capturing gateway information with 'route -n'..."
+  route -n >"route.${EXT}"
+fi
+
+# Get uname info...
+general_out "Saving 'uname -a' informations..."
+uname -a >"uname.${EXT}"
+
+# Get ICC info if present...
+ICC_LOC=`which icc 2>/dev/null`
+if [ -z "${ICC_LOC}" ]; then
+  ICC_LOC="/opt/intel/bin/icc"
+fi
+if [ -x "${ICC_LOC}" ]; then
+  general_out "Found ICC, recording version information (icc -V)..."
+  "${ICC_LOC}" -V 2>&1 | head -1 >"icc_version.${EXT}"
+else
+  general_out "Unable to find ICC!; This doesn't mean it not installed, just not found!"
+fi
+
+# Get RPM Packages List...
+general_out "Saving RPM package list (rpm -qa)..."
+rpm -qa | sort >"rpm_packages.${EXT}"
+
+# Get detailed process list...
+general_out "Saving list of running processes (ps -aef)..."
+ps -aef >"processes.${EXT}"
+
+# Get module list...
+general_out "Saving 'lsmod' output for the host..."
+lsmod >"modules.${EXT}"
+
+# Get modules version and parameters...
+general_out "Saving modules versions and parameters..."
+for module in cosm_bus mic_cosm mic_x200_dma mic_x200 scif_bus scif vop_bus vop; do
+  echo "${module}_version='`cat /sys/module/${module}/version`'" >>"modules_info.${EXT}"
+  if [ -d /sys/module/${module}/parameters ]; then
+    for param in `ls /sys/module/${module}/parameters`; do
+      echo "${module}_${param}='`cat /sys/module/${module}/parameters/${param}`'" >>"modules_info.${EXT}"
+    done
+  fi
+done
+
+# Get memory information...
+general_out "Saving memory information..."
+vmstat -s >"memory_vmstat.${EXT}"
+cat /proc/iomem >"memory_iomem.${EXT}"
+cat /proc/meminfo >"memory_info.${EXT}"
+cat /proc/slabinfo >"memory_slab.${EXT}"
+
+# Get BIOS information...
+general_out "Saving BIOS information (dmidecode)..."
+dmidecode >"dmidecode_info.${EXT}"
+
+# Get firewall state if found...
+if [ -n "$SYSCTL" ] && [ -a "/lib/systemd/system/iptables.service" ]; then
+  general_out "'iptables.service' firewall service found.  Recording current status..."
+  systemctl status iptables.service >"firewall.${EXT}"
+fi # RHEL7 has IPtables and a Firewall service.
+if [ -n "$SYSCTL" ] && [ -a "/lib/systemd/system/firewalld.service" ]; then
+  general_out "'firewalld.service' firewall service found. Recording current status..."
+  systemctl status firewalld.service >>"firewall.${EXT}"
+  elif [ -n "$SYSCTL" ] && [ -a "/usr/lib/systemd/system/SuSEfirewall2.service" ]; then
+    general_out "'SuSEfirewall2.service' found.  Recording current status..."
+    systemctl status SuSEfirewall2.service >"firewall.${EXT}"
+  elif [ -x "/etc/init.d/SuSEfirewall2_setup" ]; then
+    general_out "SuSE firewall service found. Recording current status..."
+    service SuSEfirewall2_setup status >"firewall.${EXT}"
+  elif [ -x "/etc/init.d/iptables" ]; then
+    general_out "'iptables' firewall service found. Recording current status..."
+    service iptables status >"firewall.${EXT}"
+  else
+    general_out "Firewall service not found!"
+fi
+
+# Get NetworkManager state if found...   #CHNAGE : Check execution
+if [ -a "/lib/systemd/system/NetworkManager.service" ]; then
+  general_out "Detected NetworkManager.service, getting its status..."
+  systemctl status NetworkManager.service >"NetworkManagerStatus.${EXT}"
+elif [ -x "/etc/init.d/NetworkManager" ]; then
+  general_out "Detected NetworkManager, getting its status..."
+  service NetworkManager status >"NetworkManagerStatus.${EXT}"
+else
+  general_out "NetworkManager service not found!"
+fi
+
+# Saving firewall rules information...
+general_out "Saving firewall rules information..."
+iptables -L >"firewall_iptables.${EXT}"
+
+########################################################################
+# Get prerequisites for running the more dangerous commands.
+COPROC_SW_COUNT=`get_safe_card_count`
+card_states=""
+COPROC_ONLINE_COUNT=0
+COPROC_ONLINE_CARDS=""
+COPROC_OFFLINE_CARDS=""
+COPROC_ALL_CARDS=""
+
+general_out "Gathering debug data..."
+MODULE=`lsmod | awk '{print $1}' | grep mic`
+if [ -z "$MODULE" ]; then
+  general_out "Warning: The 'mic' kernel module is not loaded; results will be greatly reduced."
+  SERVICE=""
+else
+  general_out "Running 'systemctl status mpss.service'..."
+  SERVICE=$(systemctl status mpss.service | awk 'FNR == 3 {print $2}')
+fi
+
+if [ -z "$MODULE" ]; then
+  minus1=`expr $COPROC_SW_COUNT - 1`
+  COPROC_OFFLINE_CARDS="`seq 0 $minus1`"
+  COPROC_ALL_CARDS="$COPROC_OFFLINE_CARDS"
+else
+  for j in `seq $COPROC_SW_COUNT`; do
+    i=`expr $j - 1`
+    COPROC_ALL_CARDS=`string_list_append "${COPROC_ALL_CARDS}" "$i"`
+    general_out "Running 'micctrl -s mic$i'..."
+    # Might be dangerous but needed to continue:
+    state=`micctrl -s "mic$i" | awk -- '{print $2'}`
+    card_states=`string_list_append "${card_states}" "${i}:${state}"`
+    if [ "${state}" = "online" ]; then
+      COPROC_ONLINE_COUNT=`expr $COPROC_ONLINE_COUNT + 1`
+      COPROC_ONLINE_CARDS=`string_list_append "${COPROC_ONLINE_CARDS}" "$i"`
+    else
+      COPROC_OFFLINE_CARDS=`string_list_append "${COPROC_OFFLINE_CARDS}" "$i"`
+    fi
+  done
+fi
+
+# Get configuration information...
+  general_out "Gathering software configuration data..."
+  general_out "  Copying $MIC_CONFIG_DIR/default.conf..."
+    cp $MIC_CONFIG_DIR/default.conf "default.conf.${EXT}"
+    general_out "  Copying $MIC_CONFIG_DIR/conf.d/*.conf files..."
+    for f in $MIC_CONFIG_DIR/conf.d/*.conf; do
+       cp "$f" "conf_d_${f##*/}.${EXT}" 2>/dev/null
+    done
+    for i in $COPROC_ALL_CARDS; do
+      general_out "  For 'mic${i}'..."
+      general_out "    Copying $MIC_CONFIG_DIR/mic${i}.conf file (using cp)..."
+      cp "$MIC_CONFIG_DIR/mic${i}.conf" "mic${i}.conf.${EXT}"
+    done
+
+########################################################################
+# Tests requiring that the 'mpss' service is "running" or "active":
+if [ "$SERVICE" = "running" ] || [ "$SERVICE" = "active" ]; then
+# Getting the cards sysfs entries...
+  for card in $COPROC_ALL_CARDS; do
+    rm -f "sysfs_mic${card}.${EXT}"
+    general_out "Saving host sysfs for card mic${card}..."
+    for file in /sys/class/mic/mic${card}/config/*; do
+      [ -f "$file" ] && echo "${file##*/}='`cat ${file}`'" >>"sysfs_mic_${card}_config.${EXT}"
+    done
+    for file in /sys/class/mic/mic${card}/spad/*; do
+      [ -f "$file" ] && echo "${file##*/}='`cat ${file}`'" >>"sysfs_mic_${card}_spad.${EXT}"
+    done
+    for file in /sys/class/mic/mic${card}/info/*; do
+      [ -f "$file" ] && echo "${file##*/}='`cat ${file}`'" >>"sysfs_mic${card}_info.${EXT}"
+    done
+  done
+# Run a ping test of online cards to see which are not responding...
+  general_out "Testing the online cards network with ping..."
+  for card in $COPROC_ONLINE_CARDS; do
+    ping_test "$card"
+    if [ $? -ne 0 ]; then
+      general_out "PROBLEM: Card mic${card} is 'online' but NOT reponding to a ping (ICMP)!"
+    fi
+  done
+
+# Get General active coprocessor software information...
+  general_out "Gathering active coprocessor state data..."
+  RUN_ALL=0
+  if [ "$COPROC_SW_COUNT" -eq "$COPROC_ONLINE_COUNT" ]; then
+    RUN_ALL=1
+    general_out "All $COPROC_ONLINE_COUNT cards are online."
+  elif [ "$COPROC_ONLINE_COUNT" -eq 0 ]; then
+    general_out "None of the cards are online."
+  else
+    general_out "Not all cards are online ($COPROC_ONLINE_COUNT online out of $COPROC_SW_COUNT):"
+    for i in $COPROC_OFFLINE_CARDS; do
+       state=`get_card_state_from_list "${card_states}" "${i}"`
+       general_out "     mic${i} is in the '${state}' state"
+    done
+  fi
+
+  rm -f "miccheck.${EXT}"
+  if [ -n "$COPROC_ONLINE_CARDS" ]; then
+    if [ "$RUN_ALL" -eq 1 ]; then
+      general_out "Running miccheck on all devices..."
+      echo "Running miccheck on all devices..." >>"miccheck.${EXT}"
+      miccheck -v >>"miccheck.${EXT}"
+    else
+      general_out "Running miccheck on device list '${COPROC_ONLINE_CARDS}'..."
+      echo "Running miccheck on device list '${COPROC_ONLINE_CARDS}'..." >>"miccheck.${EXT}"
+      for micnum in $COPROC_ONLINE_CARDS; do
+        miccheck -vd mic$micnum >>"miccheck.${EXT}"
+      done
+    fi
+  else
+    general_out "No online cards '${COPROC_ONLINE_CARDS}' responded to a ping test!"
+    echo "No online cards '${COPROC_ONLINE_CARDS}' responded to a ping test!" >>"miccheck.${EXT}"
+  fi
+  micinfo >"micinfo.${EXT}"
+
+# Gathering card dmesg logs...
+  for card in $COPROC_ALL_CARDS; do
+    general_out "Saving card dmesg log files..."
+    micctrl mic${card} -sv >"mic${card}_dmesg.${EXT}"
+    micctrl mic${card} -l >>"mic${card}_dmesg.${EXT}"
+  done
+
+# Checkin COI Daemon on the online cards...
+  general_out "Checking on COI daemon running on the cards (WARNING: uses ssh as root)..."
+  COI_FILE="coi_daemons.${EXT}"
+  rm -f "$COI_FILE"
+  responding=`generate_ping_list " " $COPROC_ONLINE_CARDS`
+  for card in $responding; do
+    netname=`get_host_or_ip_by_mic_number ${card}`
+    ssh -q -o "BatchMode yes" -o "StrictHostKeyChecking no" "${netname}" "echo -n"
+    if [ $? -eq 0 ]; then
+      coi_state=`ssh -q -o "BatchMode yes" -o "StrictHostKeyChecking no" ${netname} "ps -ae | grep coi_daemon | grep -v -e grep"`
+      if [ -z "$coi_state" ]; then
+        echo "Card 'mic${card}': COI Daemon NOT RUNNING" | tee -a "$COI_FILE"
+      else
+        echo "Card 'mic${card}': COI Daemon Running" | tee -a "$COI_FILE"
+      fi
+    else
+      echo "ERROR: Could not ssh to online card at '${netname}' as root!" | tee -a "$COI_FILE"
+    fi
+  done
+
+# Checking for ofed installation and status
+  rm -f "ofed.${EXT}"
+  if [ -x /etc/init.d/ofed-mic ]; then
+    general_out "Checking for the state of OFED components..."
+    if [ -n "$SYSCTL" ]; then
+      echo "systemctl status openibd..." >>"ofed.${EXT}"
+      systemctl status openibd >>"ofed.${EXT}"
+    else
+      echo "service openibd status..." >>"ofed.${EXT}"
+      service openibd status >>"ofed.${EXT}"
+    fi
+    if [ -n "$SYSCTL" ]; then
+      echo "systemctl status ofed-mic..." >>"ofed.${EXT}"
+      systemctl status ofed-mic >>"ofed.${EXT}"
+    else
+      echo "service ofed-mic status..." >>"ofed.${EXT}"
+      service ofed-mic status >>"ofed.${EXT}"
+    fi
+    if [ -n "$SYSCTL" ]; then
+      echo "systemctl status mpxyd..." >>"ofed.${EXT}"
+      systemctl status mpxyd >>"ofed.${EXT}"
+    else
+      echo "service mpxyd status..." >>"ofed.${EXT}"
+      service mpxyd status >>"ofed.${EXT}"
+    fi
+  else
+    general_out "'ofed-mic' for  is not installed, skipping that check."
+  fi
+fi
+
+########################################################################
+# Known dangerous commands (deep inspection lspci)...
+# Does the SW count equal the HW count?
+COPROC_HW_COUNT=`lspci | grep "Co-proc" | grep "Intel" | wc -l`
+if [ $COPROC_SW_COUNT -ne $COPROC_HW_COUNT ]; then
+  general_out "PROBLEM: The number of '$MIC_CONFIG_DIR/mic*.conf' files does not equal what 'lspci' reports (${COPROC_HW_COUNT})!"
+  general_out "         Possible configuration problem!"
+fi
+
+# Get detailed lspci listing for coprocessor devices only...
+general_out "Getting PCIe addresses for all coprocessors (using lspci)..."
+COPROC_PCI_ADDRS=`lspci -d :2264 | awk -- '{ print substr($1, 1, length($1) - 2) }'`
+general_out "Saving detailed information for only coprocessors..."
+rm -f "coproc_only_lspci.${EXT}"
+for coproc in $COPROC_PCI_ADDRS; do
+  lspci -vvvnnxxx -s "$coproc"
+  echo "#######################################################################"
+done >>"coproc_only_lspci.${EXT}"
+
+# Get ALUT information...
+general_out "Saving ALUT information..."
+if [ -d /sys/kernel/debug/mic_x200 ]; then
+  grep . /sys/kernel/debug/mic_x200/mic*/alut >"mic_x200_alut.${EXT}"
+fi
+
+# Get host SCIF information...
+general_out "Saving host SCIF information..."
+if [ -d /sys/kernel/debug/scif ]; then
+  cp /sys/kernel/debug/scif/scif_dev host_scif_dev.${EXT}
+  cp /sys/kernel/debug/scif/p2p_enable host_scif_p2p.${EXT}
+  cp /sys/kernel/debug/scif/scif_rma host_scif_rma.${EXT}
+fi
+
+# Get host crash logs...
+general_out "Saving host crash logs..."
+if [ -d /var/crash ]; then
+  for crash in `ls /var/crash`; do
+    for txt in `ls /var/crash/${crash}/*.txt`; do
+      cp ${txt} host_crash_${crash}_`basename ${txt}`.${EXT}
+    done
+  done
+fi
+
+########################################################################
+# Package data...
+echo "==================================================================="
+echo "Packaging TAR file to send to your system support representative..."
+echo " * This will list the contents of the archive file..."
+echo
+# Added step to remove any editor backups accidently copied...
+rm -f *~
+
+cd ..
+tar_ok=-1
+if [ ! -f $TAR_FILE ]; then
+  tar -czvf $TAR_FILE $FOLDER_NAME
+  tar_ok=$?
+fi
+
+# Cleanup...
+if [ $tar_ok -eq 0 ]; then
+  echo "Cleaning up..."
+  rm -rf "$FOLDER_NAME"
+  popd >/dev/null
+else
+  echo "FATAL ERROR: ${SCRIPT_NAME}: The compressed tar file '${TAR_FILE}' was NOT created!"
+  echo "     Are you out of disk space in '${TEMP_FOLDER}'?"
+  echo "     Have permissions to '${TEMP_FOLDER}' changed for 'root'?"
+  echo "     For security reasons, you will have to re-run this script!"
+  echo "Cleaning up..."
+  rm -rf "$FOLDER_NAME"
+  popd  >/dev/null
+  exit -1
+fi
+location="./${TAR_FILE}"
+if [ "$TEMP_FOLDER" != "$(pwd)" ]; then
+   mv ${TEMP_FOLDER}/${TAR_FILE} .
+fi
+if [ ! -f "$location" ]; then
+   location="${TEMP_FOLDER}/${TAR_FILE}"
+fi
+pgid=$(su $REAL_USER -c 'id -gn')
+chmod 0400 $location
+chown $REAL_USER:$pgid $location
+echo ""
+echo "*** Please send the file '${location}'"
+echo "    to your support representitive for analysis, Thanks."
+echo ""
+echo "*** If the host crashed please also compress and send the host's"
+echo "    crash dump file and the System.map file, Thanks."
+exit 0

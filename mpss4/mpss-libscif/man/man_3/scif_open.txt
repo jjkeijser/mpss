@@ -1,0 +1,49 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_OPEN(3)]
+ifndef::scif_user[SCIF_OPEN(9)]
+============
+:doctype: manpage
+
+NAME
+----
+scif_open - Create a SCIF endpoint.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*scif_epd_t scif_open(void)*;
+
+DESCRIPTION
+-----------
+The *scif_open()* function creates a new endpoint.
+
+RETURN VALUE
+------------
+Upon successful completion, scif_open() returns an endpoint descriptor to
+be used in subsequent SCIF functions calls to refer to that endpoint;
+otherwise SCIF_OPEN_FAILED (that is, \((scif_epd_t)-1)) is
+returned and errno is set to indicate the error.
+
+ERRORS
+------
+*ENOMEM*::
+ Insufficient memory was available.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_bind*(3), *scif_listen*(3), *scif_connect*(3), *scif_accept*(3), *scif_close*(3), *<scif.h>*

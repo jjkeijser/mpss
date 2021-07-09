@@ -1,0 +1,142 @@
+menuconfig INTEL_MIC
+	tristate "Intel Many Integrated Core (MIC) devices support"
+	depends on 64BIT && PCI && X86
+	---help---
+	  Intel Many Integrated Core (MIC) family of PCIe form factor
+	  coprocessor devices that run a 64 bit Linux OS.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+	  If unsure, say N.
+
+if INTEL_MIC
+
+choice
+	prompt "Driver Mode"
+	default INTEL_MIC_HOST
+	help
+	  Intel Many Integrated Core (MIC) family of PCIe form factor
+	  coprocessor devices that run a 64 bit Linux OS.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+config INTEL_MIC_HOST
+	bool "Host"
+	select VHOST_RING
+	help
+	  This enables host driver support for the Intel Many Integrated
+	  Core (MIC) family of PCIe form factor coprocessor devices that
+	  run a 64 bit Linux OS. The driver manages card OS state and
+	  enables communication between host and card. Intel MIC X100
+	  devices are currently supported.
+
+	  If you are building a host kernel with an Intel MIC device then
+	  say M (recommended) or Y, else say N. If unsure say N.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+config INTEL_MIC_CARD
+	bool "Card"
+	select VIRTIO
+	help
+	  This enables card driver support for the Intel Many Integrated
+	  Core (MIC) device family. The card driver communicates shutdown/
+	  crash events to the host and allows registration/configuration of
+	  virtio devices. Intel MIC X100 devices are currently supported.
+
+	  If you are building a card kernel for an Intel MIC device then
+	  say M (recommended) or Y, else say N. If unsure say N.
+
+	  For more information see
+	  <http://software.intel.com/en-us/mic-developer>.
+
+endchoice
+
+config INTEL_MIC_X100
+	tristate "Intel MIC x100 Driver"
+	select SCIF_BUS
+	help
+	  Enable support for the Intel Many Integrated Core (MIC) x100 family of
+	  PCIe form factor coprocessor devices.
+
+config INTEL_MIC_X200
+	tristate "Intel MIC x200 Driver"
+	select SCIF_BUS
+	help
+	  Enable support for the Intel Many Integrated Core (MIC) x200 family of
+	  PCIe form factor coprocessor devices.
+
+config SCIF_BUS
+	tristate "SCIF Bus Driver"
+	depends on X86_DEV_DMA_OPS
+	help
+	  This option is selected by any driver which registers a
+	  device or driver on the SCIF Bus, such as CONFIG_INTEL_MIC_HOST
+	  and CONFIG_INTEL_MIC_X100_CARD.
+
+	  If you are building a host/card kernel with an Intel MIC device
+	  then say M (recommended) or Y, else say N. If unsure say N.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+config SCIF
+	tristate "SCIF Driver"
+	select SCIF_BUS
+	select IOVA
+	help
+	  This enables SCIF Driver support for the Intel Many Integrated
+	  Core (MIC) family of PCIe form factor coprocessor devices that
+	  run a 64 bit Linux OS. The Symmetric Communication Interface
+	  (SCIF (pronounced as skiff)) is a low level communications API
+	  across PCIe currently implemented for MIC.
+
+	  If you are building a host kernel with an Intel MIC device then
+	  say M (recommended) or Y, else say N. If unsure say N.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+config MIC_COSM
+	tristate "Intel MIC Coprocessor State Management (COSM) Drivers"
+	default m
+	select SCIF
+	help
+	  This enables COSM driver support for the Intel Many
+	  Integrated Core (MIC) family of PCIe form factor coprocessor
+	  devices. COSM drivers implement functions such as boot, boot firmware,
+	  shutdown and reset of MIC devices.
+
+	  If you are building a host kernel with an Intel MIC device then
+	  say M (recommended) or Y, else say N. If unsure say N.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+config MIC_COSM_CLIENT
+	tristate "Intel MIC Coprocessor State Management (COSM) Client Drivers"
+	default m
+	select SCIF
+	help
+	  This enables COSM client driver support for the Intel Many
+	  Integrated Core (MIC) family of PCIe form factor coprocessor
+	  devices. COSM client drivers communicates with COSM drivers on
+	  the host kernel to ensure state synchronization of MIC devices.
+
+	  If you are building a card kernel for an Intel MIC device then
+	  say M (recommended) or Y, else say N. If unsure say N.
+
+	  More information about the Intel MIC family as well as the Linux
+	  OS and tools for MIC to use with this driver are available from
+	  <http://software.intel.com/en-us/mic-developer>.
+
+endif

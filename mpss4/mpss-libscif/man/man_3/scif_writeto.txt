@@ -1,0 +1,109 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_WRITETO(3)]
+ifndef::scif_user[SCIF_WRITETO(9)]
+===============
+:doctype: manpage
+
+NAME
+----
+scif_writeto - Copy to a remote address space.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_writeto(scif_epd_t* 'epd'*, off_t* 'loffset'*, size_t* 'len'*, off_t*
+'roffset'*, int* 'rma_flags'*);*
+
+DESCRIPTION
+-----------
+*scif_writeto*() copies 'len' bytes from the local registered address space of
+'epd', starting at the 'offset' 'loffset' to the remote registered address space
+of the peer of endpoint 'epd', starting at the 'offset' 'roffset'.
+
+Each of the specified ranges ['loffset','loffset'\+'len'-1] and ['roffset',
+'roffset'+'len'-1] must be within some registered window or windows of the local and
+remote nodes respectively. A range may intersect multiple registered
+windows, but only if those windows are contiguous in the registered address
+space.
+
+If 'rma_flags' includes *SCIF_RMA_USECPU*, then the data is copied using
+programmed read/writes. Otherwise the data is copied using DMA. If 'rma_flags'
+includes *SCIF_RMA_SYNC*, then *scif_readfrom*() will return after the
+transfer is complete. Otherwise, the transfer may be performed
+asynchronously. The order in which any two asynchronous RMA operations complete
+is non-deterministic. The synchronization functions, *scif_fence_mark*()/*scif_fence_wait*()
+and *scif_fence_signal*(), can be used to synchronize to
+the completion of asynchronous RMA operations.
+
+The DMA transfer of individual bytes is not guaranteed to complete in
+address order. If 'rma_flags' includes *SCIF_RMA_ORDERED*, then the last
+cacheline or partial cacheline of the source range will become visible on
+the destination node after all other transferred data in the source
+range has become visible on the destination node.
+
+The optimal DMA performance will likely be realized if both
+'loffset' and 'roffset' are cacheline aligned (are a multiple of 64). Lower
+performance will likely be realized if 'loffset' and 'roffset' are not cacheline
+aligned but are separated by some multiple of 64. The lowest level of
+performance is likely if 'loffset' and 'roffset' are not separated by a multiple
+of 64.
+
+The 'rma_flags' argument is formed by ORing together zero or more of the
+following values:
+
+*SCIF_RMA_USECPU*::
+    perform the transfer using the CPU, otherwise use the DMA engine.
+*SCIF_RMA_SYNC*::
+    perform the transfer synchronously, returning after the
+        transfer has completed. Passing this flag might result in
+        the API busy-waiting and consuming CPU cycles while the DMA
+        transfer is in progress.
+*SCIF_RMA_ORDERED*::
+    ensure that the last cacheline or partial cacheline of
+        the source range becomes visible on the destination node
+        after all other transferred data in the source range has
+        become visible on the destination
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_readfrom*() returns 0; otherwise
+-1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*EACCESS*::
+ Attempt to write to a read-only range or read from a write-only range.
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ 'rma_flags' is invalid.
+*ENODEV*::
+ The remote node is lost.
+*ENOTCONN*::
+ The endpoint is not connected.
+*ENXIO*::
+ The range ['loffset','loffset'\+'len'-1] is invalid for the registered address
+  space of 'epd', or
+ The range ['roffset','roffset'+'len' -1] is invalid for the registered
+  address space of the peer of 'epd', or
+ 'loffset' or 'roffset' is negative.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_readfrom*(3), *scif_vreadfrom*(3), *scif_vwriteto*(3), *scif_fence_mark*(3), *scif_fence_wait*(3), *scif_fence_signal*(3), *<scif.h>*

@@ -1,0 +1,48 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+SCIF_GET_FD(3)
+==============
+:doctype: manpage
+
+NAME
+----
+scif_get_fd - Get file descriptor from endpoint descriptor.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_get_fd(scif_epd_t* 'epd'*);*
+
+DESCRIPTION
+-----------
+*scif_get_fd*() returns the file descriptor which backs a specified endpoint
+descriptor, 'epd'. The file descriptor returned should only be used as a
+parameter to *poll*() or *select*().
+
+RETURN VALUE
+------------
+Upon successful completion, the file descriptor is returned,
+otherwise -1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*<scif.h>*

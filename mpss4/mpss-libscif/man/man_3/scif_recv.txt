@@ -1,0 +1,94 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_RECV(3)]
+ifndef::scif_user[SCIF_RECV(9)]
+============
+:doctype: manpage
+
+NAME
+----
+scif_recv - Receive a message.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_recv(scif_epd_t* 'epd'*, void* \*'msg'*, int len, int flags);*
+
+DESCRIPTION
+-----------
+*scif_recv*() receives data from the peer of endpoint 'epd'. Up to 'len' bytes of
+data are copied to memory starting at address 'msg'. On successful execution
+the return value of *scif_recv*() is the number of bytes that were received
+and is zero if no bytes were received because 'len' was zero. *scif_recv*() may
+be called only when the endpoint is in a connected state.
+
+If a *scif_recv*() call is non-blocking, then it receives only those bytes
+which can be received without waiting, up to a maximum of 'len' bytes.
+
+If a *scif_recv*() call is blocking, then it normally returns after receiving
+all 'len' bytes. If a blocking call is interrupted or the connection is
+forcibly closed, the call is considered successful if some bytes were
+received or 'len' is zero, otherwise the call is considered unsuccessful;
+subsequent calls to *scif_recv*() will successfully receive all data sent
+through peer endpoint interruption or the connection was forcibly closed.
+
+On Linux, the *select*() and *poll*() functions can be used to
+determine when data is available to be received. On Microsoft Windows*,
+the *scif_poll*() function may be used for this purpose.
+
+It is recommended that *scif_send*()/*scif_recv*() only be used for short
+control-type message communication between SCIF endpoints. The SCIF RMA
+APIs are expected to provide better performance for transfer sizes of
+1024 bytes or longer.
+
+The 'flags' argument is formed by ORing together zero or more of the following
+values:
+
+*SCIF_RECV_BLOCK*::
+
+    Block until the entire message is received.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_recv*() returns the number of bytes
+received; otherwise -1 is returned and errno is set to indicate the error
+errors is returned.
+
+ERRORS
+------
+*EAGAIN*::
+ The destination node is returning from a low power state.
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+*EFAULT*::
+ An invalid address was specified for a parameter.
+*EINTR*::
+ Signal occurred before any data was received.
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ 'flags' is invalid, or
+ 'len' is negative.
+*ENODEV*::
+ The remote node is lost.
+*ENOMEM*::
+ Not enough space.
+*ENOTCONN*::
+ The endpoint is not connected.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_send*(3), *scif_poll*(3), *poll*(2), *select*(2),  *<scif.h>*

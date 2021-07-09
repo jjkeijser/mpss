@@ -1,0 +1,60 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_BIND(3)]
+ifndef::scif_user[SCIF_BIND(9)]
+===========
+:doctype: manpage
+
+NAME
+----
+scif_bind - Bind an endpoint to a port.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_bind(scif_epd_t* 'epd'*, uint16_t* 'pn'*);*
+
+DESCRIPTION
+-----------
+*scif_bind*() binds endpoint 'epd' to port 'pn', where 'pn' is a port number on the
+local node. If 'pn' is zero, a port number greater than or equal to
+*SCIF_PORT_RSVD* is assigned and returned. Each endpoint may be bound to
+exactly one local port. Ports less than 1024 when requested can only be bound
+by system (or root) processes or by processes executed by privileged users.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_bind*() returns the port number to which 'epd'
+is bound; otherwise -1 is returned and 'errno' is set to indicate the error errors is returned.
+
+ERRORS
+------
+*EINVAL*::
+  'epd' is not a valid endpoint descriptor, or the endpoint or the port are already bound.
+
+*EISCONN*::
+  The endpoint is already connected or listening.
+
+*ENOSPC*::
+  No port number available for assignment (when pn==0).
+
+*EACCES*::
+  The port requested is protected and the user is not the superuser.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_open*(3), *scif_listen*(3), *scif_connect*(3), *scif_accept*(3), *scif_close*(3), *<scif.h>*

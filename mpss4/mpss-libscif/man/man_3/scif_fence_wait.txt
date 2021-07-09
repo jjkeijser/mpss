@@ -1,0 +1,59 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_FENCE_WAIT(3)]
+ifndef::scif_user[SCIF_FENCE_WAIT(9)]
+==================
+:doctype: manpage
+
+NAME
+----
+scif_fence_wait - Wait for completion of marked RMAs.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_fence_wait(scif_epd_t* 'epd'*, int* 'mark'*);*
+
+DESCRIPTION
+-----------
+*scif_fence_wait*() returns after all RMAs marked with 'mark' have completed.
+The value passed in 'mark' must have been obtained in a previous call to
+*scif_fence_mark*().
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_fence_wait*() returns 0;
+otherwise -1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+*ENODEV*::
+ The remote node is lost.
+*ENOTCONN*::
+ The endpoint is not connected.
+*ENOMEM*::
+ Insufficient memory was available.
+*ENOTTY*::
+ 'epd' is not a valid endpoint descriptor.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_readfrom*(3), *scif_writeto*(3), *scif_vreadfrom*(3), *scif_vwriteto*(3), *scif_fence_mark*(3), *scif_fence_signal*(3), *<scif.h>*

@@ -1,0 +1,121 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+SCIF_MMAP(3)
+============
+:doctype: manpage
+
+NAME
+----
+scif_mmap - Map pages in virtual address space to a remote window.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*void* **scif_mmap(void* \*'addr'*, size_t* 'len'*, int* 'prot_flags'*, int* 'map_flags'*,
+scif_epd_t* 'epd'*, off_t* 'offset'*);*
+
+DESCRIPTION
+-----------
+The *scif_mmap*() function establishes a mapping between those whole pages of
+the process starting at address 'pa' and continuing for 'len' bytes, and those
+whole physical pages represented by pages of the registered address space of
+the peer of the endpoint 'epd', starting at 'offset' and continuing for 'len'
+bytes. The value of 'pa', further described below, is a function of the
+parameters 'addr' and 'len', and the value of 'map_flags'. 'offset' and 'len' are
+constrained to be multiples of the page size. A successful *scif_mmap*() call
+returns 'pa' as its result.
+
+Each of the pages in the specified range ['offset','offset'+'len'-1] must be
+within some registered window on the remote node. The range may intersect
+multiple registered windows, but only if those windows are contiguous in the
+registered address space.
+
+When *SCIF_MAP_FIXED* is set in the 'flags' argument, 'pa' shall be 'addr' exactly,
+and 'addr' is constrained to be a multiple of the page size. The mapping
+established by *scif_mmap*() will replace any existing mappings for those
+pages of the address space of the process starting at 'addr' and continuing
+for 'len' bytes.
+
+When *SCIF_MAP_FIXED* is not set, the implementation uses 'addr' in an
+implementation-defined manner to arrive at 'pa'. The 'pa' so chosen will be an
+area of the address space that the implementation deems suitable for a
+mapping of 'len' bytes. An 'addr' value of 0 is interpreted as granting the
+implementation complete freedom in selecting 'pa', subject to constraints
+described below. A non-zero value of 'addr' is taken to be a suggestion
+of a process address near which the mapping should be placed. When the
+implementation selects a value for 'pa', it never places a mapping at address
+0, nor does it replace any extant mapping. In all cases, 'pa' will be a
+multiple of the page size.
+
+On successful return, CPU accesses to addresses within the mapped virtual
+address range will read or write data at corresponding memory locations of
+the remote node.
+
+The remote physical pages of a mapping created by *scif_mmap*() remain
+available, and are not reused by the memory subsystem of the remote node,
+until the mapping is changed by a subsequent call to *scif_mmap*(),
+scif_munmap(), or standard functions such as mmap() and munmap().
+
+Mapped regions of a process are automatically unmapped when the process is
+terminated. However, closing an endpoint does not automatically unmap any
+region.
+
+'prot_flags' has one or more of the following possible values:
+
+*SCIF_PROT_READ*::
+    allow the mapping if the referenced window has the *SCIF_PROT_READ* flag.
+*SCIF_PROT_WRITE*::
+    allow the mapping if the referenced window has the *SCIF_PROT_WRITE* flag.
+
+The 'map_flags' argument is formed by OR'ing together zero or more of the
+following values:
+
+*SCIF_MAP_FIXED*::
+    interpret 'addr' exactly
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_mmap*() returns the address at which the
+mapping was placed ('pa'); otherwise *SCIF_MMAP_FAILED* (that is (void *)-1) is
+returned and errno is set to indicate the error.
+
+ERRORS
+------
+*EACCESS*::
+ prot 'flags' is not compatible with registered window protection.
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+*ENOMEM*::
+ Insufficient memory was available.
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ 'map_flags' is invalid, or
+ 'prot_flags' is invalid , or
+ *SCIF_MAP_FIXED* is set and 'addr' is not a multiple of the page size, or
+ 'offset' is not a multiple of the page size, or
+ 'len' is not a multiple of the page size.
+*ENODEV*::
+ The remote node is lost.
+*ENOTCONN*::
+ The endpoint is not connected.
+*ENXIO*::
+ Addresses in the range ['offset','offset'+'len'-1] are invalid for the
+ registered address space of the peer of 'epd', or 'offset' is negative.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_munmap*(3), *<scif.h>*

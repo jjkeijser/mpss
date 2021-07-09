@@ -1,0 +1,76 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_CONNECT(3)]
+ifndef::scif_user[SCIF_CONNECT(9)]
+===============
+:doctype: manpage
+
+NAME
+----
+scif_connect - Initiate a connection on a port.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_connect(scif_epd_t* 'epd'*, struct scif_portID **'dst'*);*
+
+DESCRIPTION
+-----------
+The *scif_connect*() function requests the connection of endpoint 'epd' to remote
+port 'dst'. If the connection is successful, a peer endpoint, bound to 'dst', is
+created on node dst.node. On successful return, the connection is complete.
+
+If the endpoint 'epd' has not already been bound to a port, *scif_connect*()
+will bind it to an unused local port.
+
+A connection is terminated when an endpoint of the connection is closed,
+either explicitly by *scif_close*(), or when a process that owns one of the
+endpoints of a connection is terminated.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_connect*() returns the port ID to which the
+endpoint, 'epd', is bound; otherwise -1 is returned and errno is
+set to indicate the error.
+
+ERRORS
+------
+*ECONNREFUSED*::
+ The destination was not listening for connections or refused the
+ connection request.
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ dst.port is not a valid port ID.
+*EISCONN*::
+ The endpoint is already connected.
+*ENOMEM*::
+ No buffer space is available.
+*ENODEV*::
+ The destination node does not exist, or
+ The node is lost.
+*ENOSPC*::
+ No port number available for assignment (when pn==0).
+*EOPNOTSUPP*::
+ The endpoint is listening and cannot be connected.
+
+EXAMPLE
+-------
+None
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_open*(3), *scif_bind*(3), *scif_listen*(3), *scif_accept*(3), *scif_close*(3), *<scif.h>*

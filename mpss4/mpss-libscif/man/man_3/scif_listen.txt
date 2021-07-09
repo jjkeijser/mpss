@@ -1,0 +1,63 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_LISTEN(3)]
+ifndef::scif_user[SCIF_LISTEN(9)]
+==============
+:doctype: manpage
+
+NAME
+----
+scif_listen - Listen for connections on an endpoint.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_listen(scif_epd_t* 'epd'*, int* 'backlog'*);*
+
+DESCRIPTION
+-----------
+*scif_listen*() marks the endpoint 'epd' as a listening endpoint - that is, as
+an endpoint that will be used to accept incoming connection requests. Once
+so marked, the endpoint is said to be in the listening state and may not be
+used as the endpoint of a connection.
+
+The endpoint, 'epd', must have been bound to a port.
+
+The 'backlog' argument defines the maximum length to which the queue of
+pending connections for 'epd' may grow.  If a connection request arrives when
+the queue is full, the client may receive an error with an indication that
+the connection was refused. Maximum value for backlog is 1024, if value passed
+is larger it will be truncated to 1024.
+
+RETURN VALUE
+------------
+Upon successful completion, scif_listen() returns 0;
+otherwise -1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ the endpoint is not bound to a port.
+*EINVAL*::
+ 'backlog' is not greater than zero.
+*EISCONN*::
+ The endpoint is already connected or listening.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_open*(3), *scif_bind*(3), *scif_connect*(3), *scif_accept*(3), *scif_close*(3), *<scif.h>*

@@ -1,0 +1,55 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_GET_NODEIDS(3)]
+ifndef::scif_user[SCIF_GET_NODEIDS(9)]
+===================
+:doctype: manpage
+
+NAME
+----
+scif_get_nodeIDs - Return information about online nodes.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_get_nodeIDs(uint16_t* \*'nodes'*, int* 'len'*, uint16_t* \*'self'*);*
+
+DESCRIPTION
+-----------
+*scif_get_nodeIDs*() fills in the 'nodes' array with up to 'len' node IDs of the
+nodes in the SCIF network. If there is not enough space in 'nodes', as
+indicated by the 'len' parameter, only 'len' node IDs are returned in 'nodes'. The
+return value of *scif_get_nodeID*() is the total number of nodes currently in
+the SCIF network. By checking the return value against the 'len' parameter, the user may
+determine if enough space for 'nodes' was allocated.
+
+The node ID of the local node is returned at 'self'.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_get_nodeIDs*() returns the actual number of
+online nodes in the SCIF network including 'self'; otherwise 1 is returned and
+errno is set to indicate the error.
+
+ERRORS
+------
+*EFAULT*::
+ Bad address.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*<scif.h>*

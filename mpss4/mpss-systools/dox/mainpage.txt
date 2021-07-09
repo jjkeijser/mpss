@@ -1,0 +1,19 @@
+/*! @mainpage  Intel MIC-SW System Tools and Libraries
+ *
+ * @section  intro_sec  Introduction
+ *
+ * The micmgmt systools library provides a framework for efficient development of Mic stuff.
+ *
+ * The micmgmt systools library consists of two main sections:
+ *
+ * @defgroup  common  Common Framework
+ * @brief     Common classes and namespace wide functions.
+ *
+ * The Common Framework provides function and general purpose classes.
+ *
+ * @defgroup  sdk  Mic device specifics
+ * @brief     Mic device specifics
+ *
+ */
+
+

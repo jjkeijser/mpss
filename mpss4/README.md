@@ -1,16 +1,16 @@
-# MPSS 3
+# MPSS 4
 
-The MPSS 3 stack is intended for use with the first generation Intel Xeon Phi x100
-co-processors, known as "Knights Corner" or `KNC`.
+The MPSS 4 stack is intended for use with the second generation Intel Xeon Phi x200
+co-processors, known as "Knights Landing" or `KNL`.
 
-For the MPSS 3 stack on RHEL/CentOS 7 only the `mpss-modules` code needs to be updated.
-All other packages can be installed from the "stock" Intel MPSS 3.8.6 tarball.
 
-To use the MPSS 3 stack on RHEL/CentOS 8+ an update to the `mpss-modules` code as well
-as to the `mpss-daemon` code is required. 
-All other packages can be installed from the "stock" Intel MPSS 3.8.6 tarball, though
-some packages refer to `/usr/bin/python`, which is not present on RHEL/CentOS 8.
-These packages should be manually fixed to point to `/usr/bin/python2.7`.
+For the MPSS 4 stack on RHEL/CentOS 7 only the `mpss-modules` code needs to be updated.
+All other packages can be installed from the "stock" Intel MPSS 4.4.1 tarball.
+
+To use the MPSS 4 stack on RHEL/CentOS 8+ extensive updates to nearly all packages are
+needed, as the MPSS 4 stack is mostly C++ based. The packages compiled on RHEL/CentOS 7
+do not run very well on RHEL/CentOS 8+, especially when it comes to dependencies such
+as the Boost libraries.
 
 
 For each kernel version, the source tree is updated and tagged with that kernel version.
@@ -25,7 +25,7 @@ is as follows
 ```
   cp spec-files/mpss-modules.spec ~/rpmbuild/SPECS
   cp patches/mpss-modules*patch ~/rpmbuild/SOURCES
-  cp mpss-modules.3.8.6.tar.bz2 ~/rpmbuild/SOURCES
+  cp mpss-modules.4.4.1.tar.bz2 ~/rpmbuild/SOURCES
   rpmbuild -bb ~/rpmbuild/SPECS/mpss-modules.spec
 ```
 
@@ -35,7 +35,7 @@ If you wish to build straight from the source tree the procedure will be slightl
 * execute
 ```
   cd mpss-modules
-  make MIC_CARD_ARCH=k1om KERNEL_VERSION=<kernel-version> prefix=/usr sysconfdir=/etc
+  make BUILD_CARD=false KERNEL_SR=/usr/src/kernels/`uname -r`
 ```
 
 Note that this also works on Ubuntu 18 with the 4.15-generic kernel. The `mpss-modules` code
@@ -44,8 +44,8 @@ has not been ported to newer kernels than the one from RHEL 8.3.
 
 ## mpss-daemon patches for RHEL/CentOS 8
 
-For RHEL/CentOS 8+, a patch to the `mpss-daemon` code is required, as the code made an assumption
-about the Linux `sysfs` filesystem that is no longer valid for kernel version 4 and above.
+For RHEL/CentOS 8+ a patch to the `mpss-daemon` code is required, as the code made an assumption
+about the Linux `sysfs` filesystem that is no longer valid for kernel 4+.
 
 
 With RHEL/CentOS 8 and Linux kernel 4.18 the sysfs interface changed quite a bit. This can cause 
@@ -68,10 +68,6 @@ errors when stopping and starting the cards.
 
 With a small patch to the `mpss-daemon` code this problem is corrected and the right number of
 cards is listed again.
-
-A second issue with the micctrl command is that it has hardcoded references to the /sbin/ifup and
-/sbin/ifdown commands built in.
-
 
 Both of these problems were fixed in this version of the `mpss-daemon` source tree.
 

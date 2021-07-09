@@ -1,0 +1,86 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_UNREGISTER(3)]
+ifndef::scif_user[SCIF_UNREGISTER(9)]
+==================
+:doctype: manpage
+
+NAME
+----
+scif_unregister - Mark a memory region for remote access.
+
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_unregister(scif_epd_t* 'epd'*, off_t* 'offset'*, size_t* 'len'*);*
+
+
+DESCRIPTION
+-----------
+The *scif_unregister*() function closes those previously registered windows
+which are entirely within the range ['offset','offset'+'len'-1]. It is an error to
+specify a range which intersects only a subrange of a window.
+
+On a successful return, pages within the window may no longer be specified
+in calls to *scif_mmap*(), *scif_readfrom*(), *scif_writeto*(), *scif_vreadfrom*(),
+*scif_vwriteto*(), *scif_get_pages*(), and *scif_fence_signal*(). The window, however,
+continues to exist until all previous references against it are removed. A
+window is referenced if there is a mapping to it created by *scif_mmap*(), or if
+*scif_get_pages*() was called against the window (and the pages have not been
+returned via *scif_put_pages*()). A window is also referenced while an RMA, in
+which some range of the window is a source or destination, is in progress.
+Finally a window is referenced while some 'offset' in that window was specified
+to *scif_fence_signal*(), and the RMAs marked by that call to
+*scif_fence_signal*() have not completed. While a window is in this state, its
+registered address space pages are not available for use in a new registered
+window.
+
+When all such references to the window have been removed, its references to
+all the physical pages which it represents are removed. Similarly, the
+registered address space pages of the window become available for
+registration in a new window.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_unregister*() returns 0;
+otherwise -1 is returned and errno is set to indicate the error.
+In the event of an error, no windows are unregistered.
+
+ERRORS
+------
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ the range ['offset','offset'+'len'-1] intersects a subrange of a window, or
+ 'offset' is negative.
+
+*ENODEV*::
+ The remote node is lost.
+
+*ENOTCONN*::
+ The endpoint is not connected.
+
+*ENXIO*::
+ Addresses in the range ['offset','offset'+'len'-1] are invalid for the
+  registered address space of 'epd'.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_register*(3), *<scif.h>*

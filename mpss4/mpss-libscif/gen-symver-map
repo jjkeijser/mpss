@@ -1,0 +1,121 @@
+#!/usr/bin/env python
+# Copyright (c) 2016, Intel Corporation.
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms and conditions of the GNU Lesser General Public License,
+# version 2.1, as published by the Free Software Foundation.
+#
+# This program is distributed in the hope it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+# more details.
+
+# Automatically generates a version script from macro annotations in
+# the code. The parser is simplistic; don't get too creative.
+#
+# See example.c for a demonstration of the various macros.
+
+import sys, re, ConfigParser
+from subprocess import Popen, PIPE
+
+def parsecfg(fn):
+    global VERNAME, VERDEPS
+    c = ConfigParser.RawConfigParser()
+    c.read(fn)
+
+    VERNAME, = c.sections()  # there may be only one
+
+    # list of ['major.minor', [dependencies]]
+    # the first will have 'local *;' added
+    VERDEPS = []
+    for ver, deps in sorted(c.items(VERNAME)):
+        deps = sorted(deps.split()) if deps else []
+        VERDEPS.append([ver, deps])
+
+FINDSYMS = re.compile(r"""
+(?P<define>\#\s*define)?
+\s*(?P<macro>(compatible|default|only)_version)\s*\(
+\s*(?P<symbol>[^,)]+)\s*,
+\s*(?P<major>[^,)]+)\s*,
+\s*(?P<minor>[^,)]+)
+\s*\)
+""", re.VERBOSE)
+
+def findsyms(symtab, text):
+    # symtab = {'symbol': {'macro': [(major, minor), ...]}}
+    for m in FINDSYMS.finditer(text):
+        if m.group('define'):
+            continue  # skip over the macro's #define
+        sym = symtab.setdefault(m.group('symbol'), {})
+        typ = sym.setdefault(m.group('macro'), [])
+        ver = '%s.%s' % m.group('major', 'minor')
+        typ.append(ver)
+
+def symmap(symtab):
+    vermap = dict((v, []) for v, ds in VERDEPS)
+    for sym in symtab:
+        try:
+            c = symtab[sym].get('compatible_version', [])
+            d = symtab[sym].get('default_version', [])
+            o = symtab[sym].get('only_version', [])
+            if o:  # use either only_version...
+                assert len(o) == 1  # exactly once per symbol
+                assert not c and not d  # without also using the other macros
+                v = o
+            else:  # ...or default_version
+                assert len(d) == 1  # exactly once per symbol
+                assert c  # plus at least one compatible_version
+                assert len(c + d) == len(set(c + d))  # no duplicate versions
+                v = c + d
+            for version in v:
+                assert version in vermap  # must be in VERDEPS
+                vermap[version].append(sym)
+        except AssertionError:
+            print >>sys.stderr, 'CURRENT SYMBOL:', sym
+            print >>sys.stderr, 'VERSIONS:', o + d + c
+            raise
+    return vermap
+
+def printmap(f, vermap, fns):
+    def tag(version):
+        return '%s_%s' % (VERNAME, version)
+    print >>f, '/* Version script generated from %s */' % fns
+    for i, (version, deps) in enumerate(VERDEPS):
+        print >>f
+        print >>f, '%s {' % tag(version)
+        if vermap[version]:
+            print >>f, 'global:'
+        for symbol in sorted(vermap[version]):
+            print >>f, '\t%s;' % symbol
+        if i == 0:
+            print >>f, 'local:'
+            print >>f, '\t*;'
+        deps = [tag(d) for d in deps]
+        print >>f, '}%s;' % (' ' + ' '.join(deps) if deps else '')
+
+def main(argv):
+    i = argv.index('--')
+    (fn_i, fn_o), argv = argv[:i], argv[i+1:]
+    i = argv.index('--')
+    argv, cmd = argv[:i], argv[i+1:]
+
+    # parse the configuration file
+    parsecfg(fn_i)
+
+    # parse each file on the command line
+    symtab = {}
+    for fn in argv:
+        p = Popen(cmd + ['-DGENMAP_PARSING_PASS', '-E', fn], stdout=PIPE)
+        findsyms(symtab, p.communicate()[0])
+
+    # compute the version map and apply sanity checks
+    vermap = symmap(symtab)
+
+    # print the computed version map
+    with open(fn_o, 'w') as f:
+        printmap(f, vermap, ' '.join([fn_i] + argv))
+
+    return 0
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

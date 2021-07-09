@@ -1,0 +1,136 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_REGISTER(3)]
+ifndef::scif_user[SCIF_REGISTER(9)]
+================
+:doctype: manpage
+
+NAME
+----
+scif_register - Mark a memory region for remote access.
+
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*off_t scif_register(scif_epd_t 'epd', void* \*'addr'*, size_t 'len', off_t 'offset',
+int 'prot_flags', int 'map_flags');*
+
+DESCRIPTION
+-----------
+The *scif_register*() function opens a window, a range of whole pages of the
+registered address space of the endpoint 'epd', starting at offset 'po' and
+continuing for 'len' bytes. The value of 'po', further described below, is a
+function of the parameters 'offset' and 'len', and the value of 'map_flags'. Each
+page of the window represents the physical memory page which backs the
+corresponding page of the range of virtual address pages starting at 'addr'
+and continuing for 'len' bytes. 'addr' and 'len' are constrained to be multiples
+of the page size. 'addr' is interpreted as a user space address. A successful
+*scif_register*() call returns 'po' as the return value.
+
+When *SCIF_MAP_FIXED* is set in the 'map_flags' argument, 'po' will be 'offset'
+exactly, and 'offset' is constrained to be a multiple of the page size. The
+mapping established by *scif_register*() will not replace any existing
+registration; an error is returned if any page within the range ['offset',
+'offset'+'len'-1] intersects an existing window.
+Note: When *SCIF_MAP_FIXED* is set, the current implementation limits
+'offset' to the range [0..2\^62-1] and returns *EADDRINUSE* if the 'offset'
+requested with *SCIF_MAP_FIXED* is in the range [2\^62..2^63-1].
+
+When *SCIF_MAP_FIXED* is not set, the implementation uses 'offset' in an
+implementation-defined manner to arrive at 'po'. The 'po' value so chosen will
+be an area of the registered address space that the implementation deems
+suitable for a mapping of 'len' bytes. An 'offset' value of 0 is interpreted as
+granting the implementation complete freedom in selecting 'po', subject to
+constraints described below. A non-zero value of 'offset' is taken to be a
+suggestion of an offset near which the mapping should be placed. When the
+implementation selects a value for 'po', it does not replace any extant
+window. In all cases, 'po' will be a multiple of the page size.
+
+The physical pages which are so represented by a window are available for
+access in calls to *scif_mmap*(), *scif_readfrom*(), *scif_writeto*(),
+*scif_vreadfrom*(), and *scif_vwriteto*(). While a window is registered, the
+physical pages represented by the window will not be reused by the memory
+subsystem for any other purpose. Note that the same physical page may be
+represented by multiple windows.
+
+Subsequent operations which change the memory pages to which virtual
+addresses are mapped (such as *mmap*(), *munmap*(), *scif_mmap*() and
+*scif_munmap*()) have no effect on existing windows.
+
+On Linux, if the process will *fork*(), it is recommended that the registered
+virtual address range be marked with *MADV_DONTFORK*. Doing so will prevent
+problems due to copy-on-write semantics.
+
+The 'prot_flags' argument is formed by OR'ing together one or more of the
+following values:
+
+*SCIF_PROT_READ*::
+    allow read operations from the window
+
+*SCIF_PROT_WRITE*::
+    allow write operations to the window
+
+The 'map_flags' argument is formed by OR'ing together zero or more of
+the following values:
+
+*SCIF_MAP_FIXED*::
+    interpret 'offset' exactly
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_register*() returns the offset at which the
+mapping was placed ('po'); otherwise *SCIF_REGISTER_FAILED* (that
+is ('off_t' *)-1) is returned and 'errno' is set to indicate the error.
+
+ERRORS
+------
+*EADDRINUSE*::
+ *SCIF_MAP_FIXED* is set in 'map_flags', and pages in the range
+  ['offset','offset'+'len'-1] are already registered.
+
+*EAGAIN*::
+ The mapping could not be performed due to lack of resources.
+
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+
+*EFAULT*::
+ Addresses in the range ['addr','addr'+'len'-1] are invalid.
+
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ 'map_flags' is invalid, or
+ 'prot_flags' is invalid, or
+ *SCIF_MAP_FIXED* is set in 'flags', and 'offset' is not a multiple of
+  the page size, or
+ 'addr' is not a multiple of the page size, or
+ 'len' is not a multiple of the page size, or is 0, or
+ 'offset' is negative.
+
+*ENODEV*::
+ The remote node is lost.
+
+*ENOMEM*::
+ Not enough space.
+
+*ENOTCONN*::
+ The endpoint is not connected.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_unregister*(3), *<scif.h>*

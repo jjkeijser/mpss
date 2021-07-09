@@ -1,0 +1,92 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_FENCE_SIGNAL(3)]
+ifndef::scif_user[SCIF_FENCE_SIGNAL(9)]
+====================
+:doctype: manpage
+
+NAME
+----
+scif_fence_signal - Request a signal on completion of RMAs.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+int scif_fence_signal(scif_epd_t 'epd', off_t 'loff', uint64_t 'lval', off_t 'roff',
+uint64_t 'rval', int 'flags');
+
+DESCRIPTION
+-----------
+*scif_fence_signal*() returns after marking the current set of all uncompleted
+RMAs initiated through the endpoint 'epd' or marking the current set of all
+uncompleted RMAs initiated through the peer of endpoint 'epd'.
+
+If 'flags' includes *SCIF_SIGNAL_LOCAL*, then on completion of the RMAs in the
+marked set, 'lval' is written to memory at the address corresponding to offset
+'loff' in the local registered address space of 'epd'. 'loff' must be within a
+registered window. If 'flags' includes *SCIF_SIGNAL_REMOTE*, then on completion
+of the RMAs in the marked set, 'rval' is written to memory at the address
+corresponding to offset 'roff' in the remote registered address space of 'epd'.
+'roff' must be within a remote registered window of the peer of 'epd'. Note
+that any specified offset must be DWORD (4 byte / 32 bit) aligned.
+
+The 'flags' argument is formed by OR'ing together the following exactly one of the following values:
+
+ *SCIF_FENCE_INIT_SELF*::
+    RMA operations initiated through endpoint 'epd' are marked
+ *SCIF_FENCE_INIT_PEER*::
+    RMA operations initiated through the peer of endpoint 'epd' are marked
+
+and one or more of the following values:
+
+ *SCIF_SIGNAL_LOCAL*::
+    On completion of the marked set of RMAs, write 'lval' to
+    memory at the address corresponding to offset 'loff' in the local registered
+    address space of 'epd'.
+ *SCIF_SIGNAL_REMOTE*::
+    On completion of the marked set of RMAs, write 'lval' to
+    memory at the address corresponding to offset 'roff' in the remote registered
+    address space of 'epd'.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_fence_signal*() returns 0;
+otherwise -1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*ECONNRESET*::
+ A connection was forcibly closed by a peer.
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ 'flags' is invalid, or
+ 'loff' or 'roff' are not DWORD aligned.
+*ENODEV*::
+ The remote node is lost.
+*ENOTCONN*::
+ The endpoint is not connected.
+*ENXIO*::
+ 'loff' is invalid for the registered address of 'epd', or
+ 'roff' is invalid for the registered address space, of the peer of 'epd'.
+
+EXAMPLE
+-------
+None
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_readfrom*(3), *scif_writeto*(3), *scif_vreadfrom*(3), *scif_vwriteto*(3), *scif_fence_mark*(3), *scif_fence_wait*(3), *<scif.h>*

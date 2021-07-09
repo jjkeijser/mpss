@@ -1,0 +1,8 @@
+/var/log/mpssd {
+    weekly
+    missingok
+    compress
+    rotate 10
+    size 1G
+    copytruncate
+}

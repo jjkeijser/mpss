@@ -1,0 +1,97 @@
+// Copyright (c) 2016, Intel Corporation.
+//
+// This program is free software; you can redistribute it and/or modify it
+// under the terms and conditions of the GNU Lesser General Public License,
+// version 2.1, as published by the Free Software Foundation.
+//
+// This program is distributed in the hope it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE.  See the GNU Lesser General Public License for
+// more details.
+
+ifdef::scif_user[SCIF_ACCEPT(3)]
+ifndef::scif_user[SCIF_ACCEPT(9)]
+==============
+:doctype: manpage
+
+NAME
+----
+scif_accept - Accept a connection on an endpoint.
+
+SYNOPSIS
+--------
+*#include <scif.h>*
+
+*int scif_accept(scif_epd_t* 'epd'*, struct scif_portID* \*'peer'*, scif_epd_t*
+\*'newepd'*, int* 'flags'*);*
+
+DESCRIPTION
+-----------
+The *scif_accept*() call extracts the first connection request on the queue of
+pending connections for the port on which 'epd' is listening. *scif_accept*()
+creates a new endpoint, bound to the same port as 'epd', and allocates a new
+SCIF endpoint descriptor, returned in 'newepd', for the endpoint. The new
+endpoint is connected to the endpoint through which the connection was
+requested. 'epd' is unaffected by this call, and remains in the listening
+state.
+
+On successful return, 'peer' holds the global port identifier (node id and
+local port number) of the port which requested the connection.
+
+If the 'peer' endpoint which requested the connection is closed, the endpoint
+returned by *scif_accept*() is closed.
+
+The number of connections that can (subsequently) be accepted on 'epd' is only
+limited by system resources (memory).
+
+The 'flags' argument is formed by OR'ing together zero or more of the
+following values:
+
+*SCIF_ACCEPT_SYNC*::
+
+Block until a connection request is presented. If *SCIF_ACCEPT_SYNC* is
+   not in 'flags', and no pending connections are present on the queue,
+   *scif_accept*() fails with an EAGAIN error
+
+On Linux, the *select*() and *poll*() functions can be used to
+determine when there is a connection request. On Microsoft Windows*,
+the *scif_poll*() function may be used for this purpose.
+A readable event will be delivered when a connection is requested.
+
+RETURN VALUE
+------------
+Upon successful completion, *scif_accept*() returns 0; otherwise
+-1 is returned and errno is set to indicate the error.
+
+ERRORS
+------
+*EAGAIN*::
+ *SCIF_ACCEPT_SYNC* is not set and no connections are present to be accepted, or
+ *SCIF_ACCEPT_SYNC* is not set and remote node failed to complete its connection request.
+
+*EINTR*::
+ Interrupted function.
+
+*EINVAL*::
+ 'epd' is not a valid endpoint descriptor, or
+ 'epd' is not a listening endpoint, or
+ 'flags' is invalid, or
+ 'peer' is NULL, or
+ 'newepd' is NULL.
+
+*ENODEV*::
+ The requesting node is lost.
+
+*ENOMEM*::
+ Not enough space.
+
+*ENOENT*::
+ Secondary part of 'epd' registeration failed.
+
+NOTES
+-----
+None
+
+SEE ALSO
+--------
+*scif_open*(3), *scif_bind*(3), *scif_listen*(3), *scif_connect*(3), *scif_close*(3), *scif_poll*(3), *poll*(2), *select*(2), *<scif.h>*
