@@ -1,0 +1,21 @@
+diff -Naur mpss-libscif-4.4.1/gen-symver-map mpss-libscif-4.4.1.el8/gen-symver-map
+--- mpss-libscif-4.4.1/gen-symver-map	2016-10-10 10:03:06.000000000 +0200
++++ mpss-libscif-4.4.1.el8/gen-symver-map	2021-03-09 17:56:25.485424147 +0100
+@@ -1,4 +1,4 @@
+-#!/usr/bin/env python
++#!/usr/bin/env python2
+ # Copyright (c) 2016, Intel Corporation.
+ #
+ # This program is free software; you can redistribute it and/or modify it
+diff -Naur mpss-libscif-4.4.1/scif_api.c mpss-libscif-4.4.1.el8/scif_api.c
+--- mpss-libscif-4.4.1/scif_api.c	2016-10-10 10:03:06.000000000 +0200
++++ mpss-libscif-4.4.1.el8/scif_api.c	2021-03-09 18:02:36.052183423 +0100
+@@ -24,7 +24,7 @@
+ #include "stdio.h"
+ 
+ #include "scif.h"
+-#include <scif_ioctl.h>
++#include <linux/scif_ioctl.h>
+ 
+ #ifndef WIN32
+ 

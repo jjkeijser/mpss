@@ -1,0 +1,57 @@
+diff -Naur mpss-myo-4.4.1/src/allocator/myoexplmemoryallocator.c mpss-myo-4.4.1.el8/src/allocator/myoexplmemoryallocator.c
+--- mpss-myo-4.4.1/src/allocator/myoexplmemoryallocator.c	2017-05-26 13:21:09.000000000 -0400
++++ mpss-myo-4.4.1.el8/src/allocator/myoexplmemoryallocator.c	2021-03-12 09:45:51.283178255 -0500
+@@ -215,7 +215,7 @@
+     return errInfo;
+ }
+ 
+-inline size_t myoiNextActiveSize()
++size_t myoiNextActiveSize()
+ {
+     size_t iSize = myoiActivatedSize;
+     if (0 == iSize) 
+diff -Naur mpss-myo-4.4.1/src/allocator/myomemoryallocator.c mpss-myo-4.4.1.el8/src/allocator/myomemoryallocator.c
+--- mpss-myo-4.4.1/src/allocator/myomemoryallocator.c	2017-05-26 13:21:09.000000000 -0400
++++ mpss-myo-4.4.1.el8/src/allocator/myomemoryallocator.c	2021-03-12 09:40:20.389071708 -0500
+@@ -115,7 +115,7 @@
+     x = x | (x >> 32);
+     return popcount64(~x);
+ }
+-#ifdef WINDOWS
++
+ /** @FUNC popcount32
+  * Divide and conquer population count.
+  * @PARAM x: mask to count bits in.
+@@ -147,7 +147,6 @@
+     x = x | (x >> 16);
+     return popcount32(~x);
+ }
+-#endif
+ 
+ /** @FUNC newSpace
+  * Get some memory from an allocator.
+diff -Naur mpss-myo-4.4.1/src/machinedep/myoosplatform.c mpss-myo-4.4.1.el8/src/machinedep/myoosplatform.c
+--- mpss-myo-4.4.1/src/machinedep/myoosplatform.c	2017-05-26 13:21:09.000000000 -0400
++++ mpss-myo-4.4.1.el8/src/machinedep/myoosplatform.c	2021-03-12 10:06:30.123274143 -0500
+@@ -18,6 +18,8 @@
+ #include <string.h>
+ #include <errno.h>
+ #include <assert.h>
++#define __USE_GNU
++#include <sys/ucontext.h>
+ 
+ #include "myostat.h"
+ #include "myodebug.h"
+@@ -403,10 +405,10 @@
+ {
+     int rw;
+     void *addr;
+-    struct ucontext *sc;
++    ucontext_t *sc;
+ 
+     addr = si->si_addr;
+-    sc = (struct ucontext *) context;
++    sc = (ucontext_t *) context;
+     rw = (((&(sc->uc_mcontext))->gregs[REG_ERR]) >> 1) & 0x1;
+ 
+     if (MYO_SUCCESS != registerPageFaultHandler(addr, rw)) {

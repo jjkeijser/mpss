@@ -1,0 +1,284 @@
+diff -Naur mpss-coi-4.4.1/Makefile mpss-coi-4.4.1.el8/Makefile
+--- mpss-coi-4.4.1/Makefile	2017-05-26 13:20:46.000000000 -0400
++++ mpss-coi-4.4.1.el8/Makefile	2021-03-12 06:23:01.879730913 -0500
+@@ -83,7 +83,7 @@
+ CC_DEFINES			+= -DNDEBUG
+ endif
+ BASE_CC_FLAGS		= $(CC_DEFINES) $(INCLUDE) $(CFLAGS) $(CPPFLAGS) $(MPSS_METADATA_CFLAGS) -Wall
+-CC_FLAGS			= -fPIC -O3 $(BASE_CC_FLAGS) -pthread -fexceptions -fstack-protector -D_FORTIFY_SOURCE=2
++CC_FLAGS			= -std=c++11 -fPIC -O3 $(BASE_CC_FLAGS) -pthread -fexceptions -fstack-protector -D_FORTIFY_SOURCE=2
+ 
+ LD_FLAGS			= -pthread -ldl -lrt -Wl,-z,relro,-z,now $(LDFLAGS)
+ 
+diff -Naur mpss-coi-4.4.1/src/api/engine/engine_source.cpp mpss-coi-4.4.1.el8/src/api/engine/engine_source.cpp
+--- mpss-coi-4.4.1/src/api/engine/engine_source.cpp	2017-05-26 13:21:08.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/api/engine/engine_source.cpp	2021-03-12 06:30:50.814641346 -0500
+@@ -274,8 +274,6 @@
+     COILOG_FUNC_ENTER;
+     COIRESULT coi_result = COI_ERROR;
+     const char *coi_auth_mode_env = NULL;
+-    // will be removed soon
+-    const char *coi_auth_mode_env_temp = NULL;
+     //
+     UNREFERENCED_PARAM(coi_auth_mode_env);
+ 
+diff -Naur mpss-coi-4.4.1/src/api/pipeline/pipeline_source.cpp mpss-coi-4.4.1.el8/src/api/pipeline/pipeline_source.cpp
+--- mpss-coi-4.4.1/src/api/pipeline/pipeline_source.cpp	2017-05-26 13:21:08.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/api/pipeline/pipeline_source.cpp	2021-03-12 06:37:35.509804362 -0500
+@@ -98,7 +98,7 @@
+                              in_StackSize);
+             coi_result = COI_SUCCESS;
+         }
+-        catch (std::bad_alloc)
++        catch (const std::bad_alloc&)
+         {
+             coi_result = COI_OUT_OF_MEMORY;
+         }
+diff -Naur mpss-coi-4.4.1/src/api/process/process_source.cpp mpss-coi-4.4.1.el8/src/api/process/process_source.cpp
+--- mpss-coi-4.4.1/src/api/process/process_source.cpp	2017-05-26 13:21:08.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/api/process/process_source.cpp	2021-03-12 06:32:29.983376794 -0500
+@@ -121,7 +121,7 @@
+         *out_pProcess = (COIPROCESS)newProcess;
+         coi_result = COI_SUCCESS;
+     }
+-    catch (std::bad_alloc)
++    catch (const std::bad_alloc&)
+     {
+         coi_result = COI_OUT_OF_MEMORY;
+     }
+diff -Naur mpss-coi-4.4.1/src/include/internal/_DMA.h mpss-coi-4.4.1.el8/src/include/internal/_DMA.h
+--- mpss-coi-4.4.1/src/include/internal/_DMA.h	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/include/internal/_DMA.h	2021-03-12 06:34:10.800157696 -0500
+@@ -84,7 +84,7 @@
+     COIRESULT AsyncDMAProgamming(dma_data *in_dma_op);
+ 
+     static const uint64_t   MAXSPINSIZE = 2 * 1024 * 1024;
+-    static const double     MAXSPINTIME = 0.0005;
++    static constexpr const double     MAXSPINTIME = 0.0005;
+     //Node that gets enqueued to later on fetch related information
+     //when a DMA operation finishes
+     typedef struct
+diff -Naur mpss-coi-4.4.1/src/include/internal/_Process.h mpss-coi-4.4.1.el8/src/include/internal/_Process.h
+--- mpss-coi-4.4.1/src/include/internal/_Process.h	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/include/internal/_Process.h	2021-03-12 06:29:40.933713783 -0500
+@@ -201,13 +201,13 @@
+     // Query for function handles. Sent as an array of strings.
+     SUB_MESSAGE_TYPE(GET_FUNCTIONHANDLE,
+                      uint32_t    numFunctions;
+-                     char        names[];
++                     char       *names;
+                     );
+ 
+     // Reponse for function handles, sent as an array of uint64 handles.
+     // Number of handles is same size as the request message.
+     SUB_MESSAGE_TYPE(FUNCTIONHANDLES,
+-                     uint64_t    handles[];
++                     uint64_t   *handles;
+                     );
+ 
+     // Request to create a new pipeline. Includes connect-back port as
+diff -Naur mpss-coi-4.4.1/src/mechanism/buffer/hugetlbbuffer.cpp mpss-coi-4.4.1.el8/src/mechanism/buffer/hugetlbbuffer.cpp
+--- mpss-coi-4.4.1/src/mechanism/buffer/hugetlbbuffer.cpp	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/buffer/hugetlbbuffer.cpp	2021-03-12 06:38:38.612544976 -0500
+@@ -120,7 +120,9 @@
+             continue;
+         }
+         _COIProcess *p = info->m_procref;
++#ifndef NDEBUG
+         _COIComm *comm = p->GetComm();
++#endif
+         if ((uint64_t) - 1 != (uint64_t)info->m_remote_address)
+         {
+             p->FreeVirtualSpace(m_actual_size, info->m_remote_address);
+@@ -135,11 +137,13 @@
+ 
+             uint64_t offset = info->m_shadow_offset - PTR_DIFF(m_shadow, aligned_ptr);
+ 
++#ifndef NDEBUG
+             if (p->GetDMAChannelCount() < 2)
+             {
+                 uint64_t unreg_status = comm->UnRegisterMemory(offset, t_size);
+                 assert(unreg_status == 0 || errno == ENOTCONN);
+             }
++#endif
+             info->m_shadow_offset = (uint64_t) - 1;
+ 
+             for (uint64_t index = 0; index < p->GetDMAChannelCount(); index++)
+diff -Naur mpss-coi-4.4.1/src/mechanism/daemon/util.cpp mpss-coi-4.4.1.el8/src/mechanism/daemon/util.cpp
+--- mpss-coi-4.4.1/src/mechanism/daemon/util.cpp	2017-05-26 13:20:46.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/daemon/util.cpp	2021-03-12 09:25:37.850787098 -0500
+@@ -403,33 +403,29 @@
+ 
+     while (1)
+     {
+-        struct dirent de, *pde;
+-        if (readdir_r(dir, &de, &pde))
++        errno = 0;
++        struct dirent *de = readdir(dir);
++        if (de == NULL)
+         {
+             // Problem reading the next entry.
+-            ret = -1;
+-            break;
+-        }
+-        else if (pde == NULL)
+-        {
+-            // End of directory entries
++            if (errno != 0) ret = -1;
+             break;
+         }
+         else
+         {
+-            if (strcmp(de.d_name, ".") == 0 || strcmp(de.d_name, "..") == 0)
++            if (strcmp(de->d_name, ".") == 0 || strcmp(de->d_name, "..") == 0)
+             {
+                 // skip . and ..
+                 continue;
+             }
+-            size_t elen = strlen(de.d_name);
++            size_t elen = strlen(de->d_name);
+             if (elen > entryspace)
+             {
+                 errno = ENAMETOOLONG;
+                 ret = -1;
+                 break;
+             }
+-            memcpy(dirsuffix, de.d_name, elen);
++            memcpy(dirsuffix, de->d_name, elen);
+             dirsuffix[elen] = 0;
+             ret = (*callback)(dirpath, dirsuffix, arg);
+             if (ret != 0)
+diff -Naur mpss-coi-4.4.1/src/mechanism/event/event_sink.cpp mpss-coi-4.4.1.el8/src/mechanism/event/event_sink.cpp
+--- mpss-coi-4.4.1/src/mechanism/event/event_sink.cpp	2017-05-26 13:20:46.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/event/event_sink.cpp	2021-03-12 09:27:08.316276393 -0500
+@@ -17,10 +17,12 @@
+ 
+ extern "C" _COIStaticInit g_Initializer;
+ 
++/**
+ static bool operator <(const COIEVENT &left, const COIEVENT &right)
+ {
+     return left.opaque[0] < right.opaque[0];
+ }
++**/
+ 
+ COIRESULT _SignalEvent(COIEVENT in_Event)
+ {
+diff -Naur mpss-coi-4.4.1/src/mechanism/internal/coitracelib.cpp mpss-coi-4.4.1.el8/src/mechanism/internal/coitracelib.cpp
+--- mpss-coi-4.4.1/src/mechanism/internal/coitracelib.cpp	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/internal/coitracelib.cpp	2021-03-12 06:37:00.313833523 -0500
+@@ -119,12 +119,14 @@
+ // To use these just pass in the std::ostringstream that you are building along with
+ // the object to convert and the compiler will figure out which one to use.
+ //
++/**
+ void ConvertParamHex(std::ostringstream &s, uint8_t val)
+ {
+     char buf[8] = { 0 };
+     snprintf(buf, sizeof(buf) - 1, "%02X", val);
+     s << buf;
+ }
++**/
+ 
+ void ConvertParamHex(std::ostringstream &s, uint16_t val)
+ {
+diff -Naur mpss-coi-4.4.1/src/mechanism/pipeline/pipeline_source.cpp mpss-coi-4.4.1.el8/src/mechanism/pipeline/pipeline_source.cpp
+--- mpss-coi-4.4.1/src/mechanism/pipeline/pipeline_source.cpp	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/pipeline/pipeline_source.cpp	2021-03-12 06:40:06.324964415 -0500
+@@ -789,7 +789,7 @@
+     {
+         in_pDep = new COIEVENT[totalDep];
+     }
+-    catch (std::bad_alloc)
++    catch (const std::bad_alloc&)
+     {
+         COILOG_FUNC_RETURN_ERROR(COI_OUT_OF_MEMORY);
+     }
+diff -Naur mpss-coi-4.4.1/src/mechanism/process/process_source.cpp mpss-coi-4.4.1.el8/src/mechanism/process/process_source.cpp
+--- mpss-coi-4.4.1/src/mechanism/process/process_source.cpp	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/process/process_source.cpp	2021-03-12 06:57:24.197605943 -0500
+@@ -709,7 +709,8 @@
+             goto end;
+         }
+         _COICommInfo connection_info;
+-        memset(&connection_info, 0, sizeof(connection_info)); // temp var to pass to proxy create connection
++// JJK : memset a class?!?
++//        memset(&connection_info, 0, sizeof(connection_info)); // temp var to pass to proxy create connection
+         // because trying to keep the api the same for sink and
+         // source and the sink needs it.
+         COILOG_INFO("Calling COIProxyCreateConnection");
+@@ -908,6 +909,8 @@
+ try :
+     m_pid(0),
+           m_Connected(false),
++          m_procComm(NULL),
++          m_procListnr(NULL),
+           m_engine(in_pEngine),
+           m_userEventHandler(new _UserEventHandlerSource((COIPROCESS)this)),
+           m_initial_buffer_space(in_InitialBufferSpace),
+@@ -920,9 +923,7 @@
+           m_references(0),
+           m_state(INVALID),
+           m_dmaFence(NULL),
+-          m_region_allocator(NULL),
+-          m_procComm(NULL),
+-          m_procListnr(NULL)
++          m_region_allocator(NULL)
+ {
+     COILOG_FUNC_ENTER;
+ 
+@@ -1428,7 +1429,7 @@
+     {
+         result = r;
+     }
+-    catch (std::bad_alloc)
++    catch (const std::bad_alloc&)
+     {
+         result = COI_OUT_OF_MEMORY;
+     }
+diff -Naur mpss-coi-4.4.1/src/mechanism/proxy/uproxy_host.cpp mpss-coi-4.4.1.el8/src/mechanism/proxy/uproxy_host.cpp
+--- mpss-coi-4.4.1/src/mechanism/proxy/uproxy_host.cpp	2017-05-26 13:21:09.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/mechanism/proxy/uproxy_host.cpp	2021-03-12 09:07:04.377142061 -0500
+@@ -161,7 +161,7 @@
+                 DPRINTF("content length: %ld\n", content->length);
+ 
+                 // Validate message
+-                size_t msglen = recv_message.size() - offsetof(COIProxyMessage_t::CONTENT_T, data) - (sizeof(uint64_t));
++                ssize_t msglen = recv_message.size() - offsetof(COIProxyMessage_t::CONTENT_T, data) - (sizeof(uint64_t));
+ 
+                 if (msglen != content->length)
+                 {
+@@ -191,7 +191,7 @@
+                     if (!*isTagWritten)
+                     {
+                         written = writeDataBulk(content->fd, m_deviceTag.data(), m_deviceTag.size());
+-                        if (written != m_deviceTag.size())
++                        if (written != (ssize_t)m_deviceTag.size())
+                         {
+                             COILOG_WARNING("could not write device wrapper; "
+                                            "received %d, written %d\n",
+@@ -204,7 +204,7 @@
+                     // Write first line from data and if data contains EOL character
+                     // then save state for tag writter
+                     char eol = '\n';
+-                    size_t appendSize = remainingLength;
++                    ssize_t appendSize = (ssize_t)remainingLength;
+                     const char *endLinePtr = (const char *)memchr(remainingData, eol, remainingLength);
+                     if (NULL != endLinePtr)
+                     {
+diff -Naur mpss-coi-4.4.1/src/transport/scif_comm.cpp mpss-coi-4.4.1.el8/src/transport/scif_comm.cpp
+--- mpss-coi-4.4.1/src/transport/scif_comm.cpp	2017-05-26 13:21:08.000000000 -0400
++++ mpss-coi-4.4.1.el8/src/transport/scif_comm.cpp	2021-03-12 06:58:26.267319332 -0500
+@@ -1311,10 +1311,12 @@
+         window_offset = scif_register(m_endpoint, out_message_to_recv.buffer(),
+                                       PAGE_CEIL(message_size), 0, SCIF_PROT_WRITE, 0);
+ 
++#ifdef DEBUG
+         int reg_errno = errno;
+         DPRINTF("scif_register of address %lu and size %lu returned %lu aka "
+                 "0x%lx. errno = %d\n", (uint64_t)out_message_to_recv.buffer(),
+                 PAGE_CEIL(message_size), window_offset, window_offset, errno);
++#endif
+ 
+         // Send the window offset from the register call, even if the register
+         // call failed

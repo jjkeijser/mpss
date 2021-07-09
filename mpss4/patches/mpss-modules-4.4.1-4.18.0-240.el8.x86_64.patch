@@ -1,0 +1,308 @@
+diff -Naur mpss-modules-4.4.1/mic/bus/cosm_bus.h mpss-modules-4.4.1.el8/mic/bus/cosm_bus.h
+--- mpss-modules-4.4.1/mic/bus/cosm_bus.h	2017-05-05 12:31:12.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/bus/cosm_bus.h	2021-01-05 04:41:13.000000000 -0500
+@@ -92,7 +92,7 @@
+ 
+ 	const struct attribute_group **sysfs_attr_group;
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) || RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3))
+ 	struct kernfs_node *sysfs_node;
+ #else
+ 	struct sysfs_dirent *sysfs_node;
+diff -Naur mpss-modules-4.4.1/mic/bus/scif_bus.c mpss-modules-4.4.1.el8/mic/bus/scif_bus.c
+--- mpss-modules-4.4.1/mic/bus/scif_bus.c	2017-02-07 07:30:25.000000000 -0500
++++ mpss-modules-4.4.1.el8/mic/bus/scif_bus.c	2021-01-05 04:50:29.000000000 -0500
+@@ -176,7 +176,11 @@
+ 	sdev->dev.parent = pdev;
+ 	sdev->id.device = id;
+ 	sdev->id.vendor = SCIF_DEV_ANY_ID;
++#if RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7, 3)
+ 	sdev->dev.archdata.dma_ops = dma_ops;
++#else
++	sdev->dev.dma_ops = dma_ops;
++#endif
+ 	sdev->dev.release = scif_release_dev;
+ 	sdev->hw_ops = hw_ops;
+ 	sdev->dnode = dnode;
+diff -Naur mpss-modules-4.4.1/mic/bus/vop_bus.c mpss-modules-4.4.1.el8/mic/bus/vop_bus.c
+--- mpss-modules-4.4.1/mic/bus/vop_bus.c	2016-10-10 04:03:06.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/bus/vop_bus.c	2021-01-05 04:50:32.000000000 -0500
+@@ -168,7 +168,11 @@
+ 	vdev->dev.parent = pdev;
+ 	vdev->id.device = id;
+ 	vdev->id.vendor = VOP_DEV_ANY_ID;
++#if RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7, 3)
+ 	vdev->dev.archdata.dma_ops = dma_ops;
++#else
++	vdev->dev.dma_ops = dma_ops;
++#endif
+ 	vdev->dev.dma_mask = &vdev->dev.coherent_dma_mask;
+ 	dma_set_mask(&vdev->dev, *pdev->dma_mask);
+ 	vdev->dev.release = vop_release_dev;
+diff -Naur mpss-modules-4.4.1/mic/common/mic_dev.h mpss-modules-4.4.1.el8/mic/common/mic_dev.h
+--- mpss-modules-4.4.1/mic/common/mic_dev.h	2017-05-05 12:31:12.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/common/mic_dev.h	2021-01-05 04:59:56.000000000 -0500
+@@ -17,9 +17,17 @@
+ #define __MIC_DEV_H__
+ 
+ #include <linux/types.h>
++#include <linux/version.h>
++#if RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3)
++#include <linux/intel-iommu.h>
++#else
+ #include <linux/dma_remapping.h>
++#endif
+ #include <linux/dma-mapping.h>
+-#include <linux/version.h>
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
++#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
++#endif
+ 
+ /* The maximum number of MIC devices supported in a single host system. */
+ #define MIC_MAX_NUM_DEVS 128
+@@ -28,6 +36,7 @@
+  * mic_intr_source - The type of source that will generate
+  * the interrupt.The number of types needs to be in sync with
+  * MIC_NUM_INTR_TYPES
++
+  *
+  * MIC_INTR_DB: The source is a doorbell
+  * MIC_INTR_DMA: The source is a DMA channel
+@@ -93,7 +102,7 @@
+ 	#define IOMMU_SUPPORTS_KNL
+ #endif
+ 
+-#if defined(RHEL_RELEASE_VERSION)
++#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 0)
+ 	#define DMA_ALIAS_MEMBER pci_dev_rh->dma_alias_mask
+ #else
+ 	#define DMA_ALIAS_MEMBER dma_alias_mask
+diff -Naur mpss-modules-4.4.1/mic/cosm/cosm_main.c mpss-modules-4.4.1.el8/mic/cosm/cosm_main.c
+--- mpss-modules-4.4.1/mic/cosm/cosm_main.c	2017-05-05 12:31:12.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/cosm/cosm_main.c	2021-01-05 04:40:35.000000000 -0500
+@@ -763,7 +763,7 @@
+ 		goto device_exit;
+ 	}
+ 
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) || RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3))
+ 	cdev->sysfs_node = sysfs_get_dirent(cdev->sysfs_dev->kobj.sd, "state");
+ #else
+ 	cdev->sysfs_node = sysfs_get_dirent(cdev->sysfs_dev->kobj.sd,
+diff -Naur mpss-modules-4.4.1/mic/cosm/cosm_scif_server.c mpss-modules-4.4.1.el8/mic/cosm/cosm_scif_server.c
+--- mpss-modules-4.4.1/mic/cosm/cosm_scif_server.c	2017-05-16 10:16:03.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/cosm/cosm_scif_server.c	2021-01-05 04:51:10.000000000 -0500
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include <linux/kthread.h>
++#include <linux/sched/signal.h>
+ #include "cosm_main.h"
+ 
+ /*
+diff -Naur mpss-modules-4.4.1/mic/mic_x200/mic_dmi_scan.c mpss-modules-4.4.1.el8/mic/mic_x200/mic_dmi_scan.c
+--- mpss-modules-4.4.1/mic/mic_x200/mic_dmi_scan.c	2017-05-26 12:51:03.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/mic_x200/mic_dmi_scan.c	2021-01-05 05:28:36.000000000 -0500
+@@ -250,9 +250,9 @@
+ 		if (oem_len + len + 1 > PAGE_SIZE)
+ 			break;
+ 
+-		strncat(s, oemname, oem_len);
++		strcat(s, oemname);
++		strcat(s, " ");
+ 		len += oem_len + 1;
+-		strncat(s, " ", 1);
+ 	}
+ 	dinfo->sysfs_entry[MIC_DMI_OEM_STRINGS] = s;
+ }
+diff -Naur mpss-modules-4.4.1/mic/mic_x200/mic_main.c mpss-modules-4.4.1.el8/mic/mic_x200/mic_main.c
+--- mpss-modules-4.4.1/mic/mic_x200/mic_main.c	2017-05-05 12:31:12.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/mic_x200/mic_main.c	2021-01-05 04:43:22.000000000 -0500
+@@ -19,7 +19,11 @@
+ #include <linux/version.h>
+ #include <linux/suspend.h>
+ #include <linux/iommu.h>
++#if RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3)
++#include <linux/intel-iommu.h>
++#else
+ #include <linux/dma_remapping.h>
++#endif
+ 
+ #ifdef MIC_IN_KERNEL_BUILD
+ #include <linux/mic_common.h>
+diff -Naur mpss-modules-4.4.1/mic/scif/iova.c mpss-modules-4.4.1.el8/mic/scif/iova.c
+--- mpss-modules-4.4.1/mic/scif/iova.c	2016-10-10 04:03:06.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/scif/iova.c	2021-01-05 04:45:58.000000000 -0500
+@@ -33,7 +33,7 @@
+ 
+ #ifndef LEGACY_IOVA
+ void init_iova_domain(struct iova_domain *iovad, unsigned long granule,
+-	unsigned long start_pfn, unsigned long pfn_32bit)
++	unsigned long pfn_32bit)
+ #else
+ void
+ init_iova_domain(struct iova_domain *iovad, unsigned long pfn_32bit)
+diff -Naur mpss-modules-4.4.1/mic/scif/scif_api.c mpss-modules-4.4.1.el8/mic/scif/scif_api.c
+--- mpss-modules-4.4.1/mic/scif/scif_api.c	2017-05-26 12:51:03.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/scif/scif_api.c	2021-01-05 04:53:07.000000000 -0500
+@@ -50,6 +50,7 @@
+  * Intel SCIF driver.
+  */
+ #include <linux/pagemap.h>
++#include <linux/sched/signal.h>
+ #ifdef MIC_IN_KERNEL_BUILD
+ #include <linux/scif.h>
+ #else
+diff -Naur mpss-modules-4.4.1/mic/scif/scif_dma.c mpss-modules-4.4.1.el8/mic/scif/scif_dma.c
+--- mpss-modules-4.4.1/mic/scif/scif_dma.c	2017-02-07 07:30:25.000000000 -0500
++++ mpss-modules-4.4.1.el8/mic/scif/scif_dma.c	2021-01-05 05:25:10.000000000 -0500
+@@ -207,6 +207,7 @@
+ 	schedule_work(&scif_info.misc_work);
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ static void scif_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
+ 					      struct mm_struct *mm,
+ 					      unsigned long address)
+@@ -216,6 +217,7 @@
+ 	mmn = container_of(mn, struct scif_mmu_notif, ep_mmu_notifier);
+ 	scif_rma_destroy_tcw(mmn, address, PAGE_SIZE);
+ }
++#endif
+ 
+ static void scif_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
+ 						     struct mm_struct *mm,
+@@ -242,7 +244,14 @@
+ static const struct mmu_notifier_ops scif_mmu_notifier_ops = {
+ 	.release = scif_mmu_notifier_release,
+ 	.clear_flush_young = NULL,
+-	.invalidate_page = scif_mmu_notifier_invalidate_page,
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
++    .invalidate_page = scif_mmu_notifier_invalidate_page,
++#else
++    /* Kernel 4.13+ no longer has invalidate_page; set all other struct memember explicitly */
++    .clear_young = NULL,
++    .test_young = NULL,
++    .invalidate_range = NULL,
++#endif
+ 	.invalidate_range_start = scif_mmu_notifier_invalidate_range_start,
+ 	.invalidate_range_end = scif_mmu_notifier_invalidate_range_end};
+ 
+diff -Naur mpss-modules-4.4.1/mic/scif/scif_main.h mpss-modules-4.4.1.el8/mic/scif/scif_main.h
+--- mpss-modules-4.4.1/mic/scif/scif_main.h	2017-05-26 12:51:03.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/scif/scif_main.h	2021-01-05 03:34:17.000000000 -0500
+@@ -76,6 +76,10 @@
+ #define LEGACY_IOVA
+ #endif
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
++#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
++#endif
++
+ #include "../common/mic_dev.h"
+ 
+ #define SCIF_MGMT_NODE 0
+diff -Naur mpss-modules-4.4.1/mic/scif/scif_rb.c mpss-modules-4.4.1.el8/mic/scif/scif_rb.c
+--- mpss-modules-4.4.1/mic/scif/scif_rb.c	2016-10-10 04:03:06.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/scif/scif_rb.c	2021-01-05 05:01:03.000000000 -0500
+@@ -54,6 +54,11 @@
+ #include <linux/io.h>
+ #include <linux/errno.h>
+ 
++#include <linux/version.h>
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
++#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
++#endif
++
+ #include "scif_rb.h"
+ 
+ static inline u32 scif_rb_ring_cnt(u32 head, u32 tail, u32 size)
+diff -Naur mpss-modules-4.4.1/mic/scif/scif_rma.c mpss-modules-4.4.1.el8/mic/scif/scif_rma.c
+--- mpss-modules-4.4.1/mic/scif/scif_rma.c	2017-05-19 12:26:56.000000000 -0400
++++ mpss-modules-4.4.1.el8/mic/scif/scif_rma.c	2021-01-05 05:21:46.000000000 -0500
+@@ -13,9 +13,20 @@
+  *
+  * Intel SCIF driver.
+  */
++#include <linux/version.h>
++#if RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3)
++#include <linux/intel-iommu.h>
++#else
+ #include <linux/dma_remapping.h>
++#endif
+ #include <linux/moduleparam.h>
+ #include <linux/pagemap.h>
++#if RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3)
++#include <linux/sched.h>
++#include <linux/sched/mm.h>
++#include <linux/sched/signal.h>
++#include <linux/sched/task.h>
++#endif
+ #include "scif_main.h"
+ #include "scif_map.h"
+ 
+@@ -131,8 +142,7 @@
+ 
+ 	mutex_init(&rma->rma_lock);
+ #ifndef LEGACY_IOVA
+-	init_iova_domain(&rma->iovad, PAGE_SIZE, SCIF_IOVA_START_PFN,
+-			 SCIF_DMA_64BIT_PFN);
++	init_iova_domain(&rma->iovad, PAGE_SIZE, SCIF_DMA_64BIT_PFN);
+ #else
+ 	init_iova_domain(&rma->iovad, SCIF_DMA_64BIT_PFN);
+ #endif
+@@ -388,7 +398,11 @@
+ 		return 0;
+ 
+ 	down_write(&mm->mmap_sem);
+-	mm->pinned_vm -= nr_pages;
++#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
++        mm->pinned_vm.counter -= nr_pages;
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
++        mm->pinned_vm -= nr_pages;
++#endif
+ 	up_write(&mm->mmap_sem);
+ 	return 0;
+ }
+@@ -403,7 +417,11 @@
+ 
+ 	down_write(&mm->mmap_sem);
+ 	locked = nr_pages;
++#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
++    locked += mm->pinned_vm.counter;
++#else
+ 	locked += mm->pinned_vm;
++#endif
+ 	lock_limit = rlimit(RLIMIT_MEMLOCK) >> PAGE_SHIFT;
+ 	if ((locked > lock_limit) && !capable(CAP_IPC_LOCK)) {
+ 		up_write(&mm->mmap_sem);
+@@ -413,7 +431,11 @@
+ 			locked, lock_limit);
+ 		return -EAGAIN;
+ 	}
+-	mm->pinned_vm = locked;
++#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
++    mm->pinned_vm.counter = locked;
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
++    mm->pinned_vm = locked;
++#endif
+ 	up_write(&mm->mmap_sem);
+ 	return 0;
+ }
+diff -Naur mpss-modules-4.4.1/mic/scif/scif_rma.h mpss-modules-4.4.1.el8/mic/scif/scif_rma.h
+--- mpss-modules-4.4.1/mic/scif/scif_rma.h	2017-02-07 07:30:25.000000000 -0500
++++ mpss-modules-4.4.1.el8/mic/scif/scif_rma.h	2021-01-05 03:27:33.000000000 -0500
+@@ -52,7 +52,11 @@
+ #ifndef SCIF_RMA_H
+ #define SCIF_RMA_H
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ #include <linux/dma_remapping.h>
++#else
++#include <linux/intel-iommu.h>
++#endif
+ #include <linux/mmu_notifier.h>
+ 
+ #include "../bus/scif_bus.h"

@@ -1,0 +1,2372 @@
+diff -Naur mpss-modules-3.8.6/host/linux.c mpss-modules-3.8.6.el8/host/linux.c
+--- mpss-modules-3.8.6/host/linux.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/linux.c	2021-02-08 09:52:08.565206285 +0100
+@@ -308,8 +308,13 @@
+ 	if (mic_msi_enable){
+ 		for (i = 0; i < MIC_NUM_MSIX_ENTRIES; i ++)
+ 			bd_info->bi_msix_entries[i].entry = i;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ 		err = pci_enable_msix(mic_ctx->bi_pdev, bd_info->bi_msix_entries,
+ 				      MIC_NUM_MSIX_ENTRIES);
++#else
++		err = pci_enable_msix_exact(mic_ctx->bi_pdev, bd_info->bi_msix_entries,
++				      MIC_NUM_MSIX_ENTRIES);
++#endif
+ 		if (err == 0 ) {
+ 			// Only support 1 MSIx for now
+ 			err = request_irq(bd_info->bi_msix_entries[0].vector,
+@@ -337,7 +342,7 @@
+ 			NULL, "mic%d", mic_ctx->bd_info->bi_ctx.bi_id);
+ 	err = sysfs_create_group(&mic_ctx->bd_info->bi_sysfsdev->kobj, &bd_attr_group);
+ 	mic_ctx->sysfs_state = sysfs_get_dirent(mic_ctx->bd_info->bi_sysfsdev->kobj.sd,
+-#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35) && LINUX_VERSION_CODE < KERNEL_VERSION(3,14,0))
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(2,6,35) && LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
+ 				NULL,
+ #endif
+ 				"state");
+@@ -778,7 +783,11 @@
+ 		goto cleanup_filp;
+ 	}
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ 	c = vfs_read(filp, buffer, filp_size, &pos);
++#else
++	c = kernel_read(filp, buffer, filp_size, &pos);
++#endif
+ 	if(c != (long)filp_size) {
+ 		status = -1; //FIXME
+ 		goto cleanup_filp;
+diff -Naur mpss-modules-3.8.6/host/linvcons.c mpss-modules-3.8.6.el8/host/linvcons.c
+--- mpss-modules-3.8.6/host/linvcons.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/linvcons.c	2021-02-08 09:52:08.566206213 +0100
+@@ -43,7 +43,11 @@
+ 								int count);
+ static int micvcons_write_room(struct tty_struct *tty);
+ static void micvcons_set_termios(struct tty_struct *tty, struct ktermios * old);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ static void micvcons_timeout(unsigned long);
++#else
++static void micvcons_timeout(struct timer_list *t);
++#endif
+ static void micvcons_throttle(struct tty_struct *tty);
+ static void micvcons_unthrottle(struct tty_struct *tty);
+ static void micvcons_wakeup_readbuf(struct work_struct *work);
+@@ -62,10 +66,16 @@
+ static struct tty_driver *micvcons_tty = NULL;
+ static u16 extra_timeout = 0;
+ static u8 restart_timer_flag = MICVCONS_TIMER_RESTART;
+-static struct timer_list vcons_timer;
+-static struct list_head timer_list_head;
+ static spinlock_t timer_list_lock;
+ 
++struct vcons_timer_list {
++    struct timer_list timer;
++    struct list_head  timer_list_head;
++};
++
++static struct vcons_timer_list  vcons_timer;
++
++
+ int
+ micvcons_create(int num_bds)
+ {
+@@ -75,7 +85,7 @@
+ 	char wq_name[14];
+ 	struct device *dev;
+ 
+-	INIT_LIST_HEAD(&timer_list_head);
++	INIT_LIST_HEAD(&vcons_timer.timer_list_head);
+ 
+ 	if (micvcons_tty)
+ 		goto exit;
+@@ -145,9 +155,13 @@
+ 		}
+ 		INIT_WORK(&port->dp_wakeup_read_buf, micvcons_wakeup_readbuf);
+ 	}
+-	vcons_timer.function = micvcons_timeout;
+-	vcons_timer.data = (unsigned long)(&timer_list_head);
+-	init_timer(&vcons_timer);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
++	vcons_timer.timer.function = micvcons_timeout;
++	vcons_timer.timer.data = (unsigned long)(&vcons_timer.timer_list_head);
++	init_timer(&vcons_timer.timer);
++#else
++    timer_setup(&vcons_timer.timer, micvcons_timeout, 0);
++#endif
+ exit:
+ 	return ret;
+ }
+@@ -215,10 +229,10 @@
+ 		if (ret != 0)
+ 			goto exit_locked;
+ 		spin_lock(&timer_list_lock);
+-		list_add_tail_rcu(&port->list_member, &timer_list_head);
+-		if (list_is_singular(&timer_list_head)) {
++		list_add_tail_rcu(&port->list_member, &vcons_timer.timer_list_head);
++		if (list_is_singular(&vcons_timer.timer_list_head)) {
+ 			restart_timer_flag = MICVCONS_TIMER_RESTART;
+-			mod_timer(&vcons_timer, jiffies + 
++			mod_timer(&vcons_timer.timer, jiffies + 
+ 				msecs_to_jiffies(MICVCONS_SHORT_TIMEOUT));
+ 		}
+ 		spin_unlock(&timer_list_lock);
+@@ -235,10 +249,10 @@
+ {
+ 	spin_lock(&timer_list_lock);
+ 	list_del_rcu(&port->list_member);
+-	if (list_empty(&timer_list_head)) {
++	if (list_empty(&vcons_timer.timer_list_head)) {
+ 		restart_timer_flag = MICVCONS_TIMER_SHUTDOWN;
+ 		spin_unlock(&timer_list_lock);
+-		del_timer_sync(&vcons_timer);
++		del_timer_sync(&vcons_timer.timer);
+ 	} else {
+ 		spin_unlock(&timer_list_lock);
+ 	}
+@@ -498,10 +512,30 @@
+ 		micvcons_del_timer_entry(port);
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ static void
+ micvcons_timeout(unsigned long data)
+ {
++/* Analysis:
++   data points to a 'struct list_head' 
++   'struct timer_list' has a member 'struct list_head entry'
++
++   list_for_each_entry_rcu(pos, head, member)
++   @pos:    the type * to use as a loop cursor.
++   @head:   the head for your list.
++   @member: the name of the list_head within the struct.
++*/
+ 	struct list_head *timer_list_ptr = (struct list_head *)data;
++
++#else
++static void
++micvcons_timeout(struct timer_list *t)
++{
++	struct vcons_timer_list *my_vcons_timer = from_timer( my_vcons_timer, t, timer);
++	struct list_head *timer_list_ptr = &my_vcons_timer->timer_list_head;
++
++#endif
++
+ 	micvcons_port_t *port;
+ 	u8 console_active = 0;
+ 	int num_chars_read = 0;
+@@ -513,13 +547,12 @@
+ 			console_active = 1;
+ 	}
+ 	rcu_read_unlock();
+-
+ 	spin_lock(&timer_list_lock);
+ 	if (restart_timer_flag == MICVCONS_TIMER_RESTART) {
+ 		extra_timeout = (console_active ? 0 :
+ 				extra_timeout + MICVCONS_SHORT_TIMEOUT);
+ 		extra_timeout = min(extra_timeout, (u16)MICVCONS_MAX_TIMEOUT);
+-		mod_timer(&vcons_timer, jiffies + 
++		mod_timer(&vcons_timer.timer, jiffies + 
+ 			msecs_to_jiffies(MICVCONS_SHORT_TIMEOUT+extra_timeout));
+ 	}
+ 	spin_unlock(&timer_list_lock);
+diff -Naur mpss-modules-3.8.6/host/linvnet.c mpss-modules-3.8.6.el8/host/linvnet.c
+--- mpss-modules-3.8.6/host/linvnet.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/linvnet.c	2021-02-08 09:52:08.566206213 +0100
+@@ -203,7 +203,11 @@
+ 	.ndo_set_multicast_list = micveth_multicast_list,
+ #endif
+ 	.ndo_set_mac_address	= micveth_set_address,
+-	.ndo_change_mtu		= micveth_change_mtu,
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0)
++	.ndo_change_mtu_rh74	= micveth_change_mtu,
++#else
++	.ndo_change_mtu			= micveth_change_mtu,
++#endif
+ };
+ #endif
+ 
+@@ -221,7 +225,11 @@
+ #if LINUX_VERSION_CODE > KERNEL_VERSION(2,6,28)
+ 	dev->netdev_ops = &veth_netdev_ops;
+ #endif
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	dev->priv_destructor = free_netdev;
++#else
+ 	dev->destructor = free_netdev;
++#endif
+ 
+ 	/* Fill in device structure with ethernet-generic values. */
+ 	dev->mtu = (MICVETH_MAX_PACKET_SIZE);
+@@ -230,8 +238,13 @@
+ 	random_ether_addr(dev->dev_addr);
+ }
+ 
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++static int
++micveth_validate(struct nlattr *tb[], struct nlattr *data[], struct netlink_ext_ack *extack)
++#else
+ static int
+ micveth_validate(struct nlattr *tb[], struct nlattr *data[])
++#endif
+ {
+ 	if (tb[IFLA_ADDRESS]) {
+ 		if (nla_len(tb[IFLA_ADDRESS]) != ETH_ALEN)
+diff -Naur mpss-modules-3.8.6/host/pm_pcstate.c mpss-modules-3.8.6.el8/host/pm_pcstate.c
+--- mpss-modules-3.8.6/host/pm_pcstate.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/pm_pcstate.c	2021-02-08 09:52:08.566206213 +0100
+@@ -45,20 +45,25 @@
+ //few helper functions
+ int pm_reg_read(mic_ctx_t *mic_ctx, uint32_t regoffset) {
+ 	uint32_t regval = 0;
+-if (mic_ctx->bi_family == FAMILY_ABR)
+-	regval = DBOX_READ(mic_ctx->mmio.va, regoffset);
+-else if (mic_ctx->bi_family == FAMILY_KNC)
+-	regval = SBOX_READ(mic_ctx->mmio.va, regoffset);
++	if (mic_ctx->bi_family == FAMILY_ABR)
++		regval = DBOX_READ(mic_ctx->mmio.va, regoffset);
++	else {
++		if (mic_ctx->bi_family == FAMILY_KNC)
++			regval = SBOX_READ(mic_ctx->mmio.va, regoffset);
++	}
+ 
+ 	return regval;
+ }
+ 
+ int pm_reg_write(uint32_t value, mic_ctx_t *mic_ctx, uint32_t regoffset) {
+ 	int err = 0;
+-if (mic_ctx->bi_family == FAMILY_ABR)
+-	DBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
+-else if (mic_ctx->bi_family == FAMILY_KNC)
+-	SBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
++
++	if (mic_ctx->bi_family == FAMILY_ABR)
++		DBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
++	else {
++		 if (mic_ctx->bi_family == FAMILY_KNC)
++			SBOX_WRITE(value, mic_ctx->mmio.va, regoffset);
++	}
+ 
+ 	return err;
+ }
+diff -Naur mpss-modules-3.8.6/host/tools_support.c mpss-modules-3.8.6.el8/host/tools_support.c
+--- mpss-modules-3.8.6/host/tools_support.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/tools_support.c	2021-02-08 09:52:08.567206140 +0100
+@@ -64,7 +64,12 @@
+ 		for (j = 0; j < nf_pages; j++) {
+ 			if (pages[j]) {
+ 				SetPageDirty(pages[j]);
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++				put_page(pages[j]);
++#else
+ 				page_cache_release(pages[j]);
++#endif
++
+ 			}
+ 		}
+ 		kfree(pages);
+@@ -89,8 +94,14 @@
+ 
+ 	// pin the user pages; use semaphores on linux for doing the same
+ 	down_read(&current->mm->mmap_sem);
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	*nf_pages = (int32_t)get_user_pages_remote(current, current->mm, (uint64_t)data,
++			  nr_pages, PROT_WRITE, pages, NULL, NULL);
++#else
+ 	*nf_pages = (int32_t)get_user_pages(current, current->mm, (uint64_t)data,
+ 			  nr_pages, PROT_WRITE, 1, pages, NULL);
++#endif
++
+ 	up_read(&current->mm->mmap_sem);
+ 
+ 	// compare if the no of final pages is equal to no of requested pages
+diff -Naur mpss-modules-3.8.6/host/uos_download.c mpss-modules-3.8.6.el8/host/uos_download.c
+--- mpss-modules-3.8.6/host/uos_download.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/uos_download.c	2021-02-08 09:52:08.567206140 +0100
+@@ -811,10 +811,15 @@
+ }
+ 
+ /* Perform hardware reset of the device */
+-void
+-reset_timer(unsigned long arg)
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++void reset_timer(struct timer_list *t)
++{
++	mic_ctx_t *mic_ctx = from_timer(mic_ctx, t, boot_timer);
++#else
++void reset_timer(unsigned long arg)
+ {
+ 	mic_ctx_t *mic_ctx = (mic_ctx_t *)arg;
++#endif
+ 	uint32_t scratch2 = 0;
+ 	uint32_t postcode = mic_getpostcode(mic_ctx);
+ 
+@@ -865,8 +870,12 @@
+ 		return;
+ 	}
+ 
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	timer_setup(&mic_ctx->boot_timer, reset_timer, 0);
++#else
+ 	mic_ctx->boot_timer.function = reset_timer;
+ 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
++#endif
+ 	mic_ctx->boot_timer.expires = jiffies + HZ;
+ 
+ 	add_timer(&mic_ctx->boot_timer);
+@@ -875,8 +884,12 @@
+ void
+ adapter_wait_reset(mic_ctx_t *mic_ctx)
+ {
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	timer_setup(&mic_ctx->boot_timer, reset_timer, 0);
++#else
+ 	mic_ctx->boot_timer.function = reset_timer;
+ 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
++#endif
+ 	mic_ctx->boot_timer.expires = jiffies + HZ;
+ 	mic_ctx->boot_start = jiffies;
+ 
+@@ -1050,10 +1063,15 @@
+ 
+ #define MIC_MAX_BOOT_TIME 180	// Maximum number of seconds to wait for boot to complete
+ 
+-static void
+-online_timer(unsigned long arg)
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++static void online_timer(struct timer_list *t)
++{
++	mic_ctx_t *mic_ctx = from_timer(mic_ctx, t, boot_timer);
++#else
++static void online_timer(unsigned long arg)
+ {
+ 	mic_ctx_t *mic_ctx = (mic_ctx_t *)arg;
++#endif
+ 	uint64_t delay = (jiffies - mic_ctx->boot_start) / HZ;
+ 
+ 	if (mic_ctx->state == MIC_ONLINE)
+@@ -1065,19 +1083,29 @@
+ 		return;
+ 	}
+ 
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	timer_setup(&mic_ctx->boot_timer, online_timer, 0);
++#else
+ 	mic_ctx->boot_timer.function = online_timer;
+ 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
++#endif
+ 	mic_ctx->boot_timer.expires = jiffies + HZ;
++
+ 	add_timer(&mic_ctx->boot_timer);
+ 
+ 	if (!(delay % 5))
+ 		printk("Waiting for MIC %d boot %lld\n", mic_ctx->bi_id, delay);
+ }
+ 
+-static void
+-boot_timer(unsigned long arg)
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++static void boot_timer(struct timer_list *t)
++{
++	mic_ctx_t *mic_ctx = from_timer(mic_ctx, t, boot_timer);
++#else
++static void boot_timer(unsigned long arg)
+ {
+ 	mic_ctx_t *mic_ctx = (mic_ctx_t *)arg;
++#endif
+ 	struct micvnet_info *vnet_info = (struct micvnet_info *) mic_ctx->bi_vethinfo;
+ 	uint64_t delay = (jiffies - mic_ctx->boot_start) / HZ;
+ 	bool timer_restart = false;
+@@ -1102,17 +1130,26 @@
+ 		timer_restart = (mic_ctx->state != MIC_ONLINE)? true: false;
+ 
+ 	if (timer_restart) {
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++		timer_setup(&mic_ctx->boot_timer, boot_timer, 0);
++#else
+ 		mic_ctx->boot_timer.function = boot_timer;
+ 		mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
++#endif
+ 		mic_ctx->boot_timer.expires = jiffies + HZ;
+ 
+ 		add_timer(&mic_ctx->boot_timer);
+ 		return;
+ 	}
+ 
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	timer_setup(&mic_ctx->boot_timer, online_timer, 0);
++#else
+ 	mic_ctx->boot_timer.function = online_timer;
+ 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
++#endif
+ 	mic_ctx->boot_timer.expires = jiffies + HZ;
++
+ 	add_timer(&mic_ctx->boot_timer);
+ 
+ 	printk("MIC %d Network link is up\n", mic_ctx->bi_id);
+@@ -1166,8 +1203,12 @@
+ int
+ adapter_post_boot_device(mic_ctx_t *mic_ctx)
+ {
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	timer_setup(&mic_ctx->boot_timer, boot_timer, 0);
++#else
+ 	mic_ctx->boot_timer.function = boot_timer;
+ 	mic_ctx->boot_timer.data = (unsigned long)mic_ctx;
++#endif
+ 	mic_ctx->boot_timer.expires = jiffies + HZ;
+ 	mic_ctx->boot_start = jiffies;
+ 
+@@ -1497,7 +1538,9 @@
+ 	mutex_init (&mic_ctx->state_lock);
+ 	init_waitqueue_head(&mic_ctx->resetwq);
+ 	init_waitqueue_head(&mic_ctx->ioremapwq);
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(4,14,0)
+ 	init_timer(&mic_ctx->boot_timer);
++#endif
+ 	if (!(mic_ctx->resetworkq = __mic_create_singlethread_workqueue("RESET WORK")))
+ 		return -ENOMEM;
+ 	if (!(mic_ctx->ioremapworkq = __mic_create_singlethread_workqueue("IOREMAP_WORK"))) {
+diff -Naur mpss-modules-3.8.6/host/vhost/mic_blk.c mpss-modules-3.8.6.el8/host/vhost/mic_blk.c
+--- mpss-modules-3.8.6/host/vhost/mic_blk.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/vhost/mic_blk.c	2021-02-08 09:52:08.568206067 +0100
+@@ -42,7 +42,9 @@
+ #include "mic/mic_virtio.h"
+ 
+ #define SECTOR_SHIFT		9
++#ifndef SECTOR_SIZE
+ #define SECTOR_SIZE		(1UL << SECTOR_SHIFT)
++#endif
+ #define VIRTIO_BLK_QUEUE_SIZE		128
+ #define DISK_SEG_MAX			(VIRTIO_BLK_QUEUE_SIZE - 2)
+ 
+@@ -80,6 +82,50 @@
+ static LIST_HEAD(write_queue);
+ static LIST_HEAD(read_queue);
+ 
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
++
++/* replacement functions for vfs_readv,vfs_writev which were removed from kernel 4+ */
++
++
++ssize_t vfs_readv(struct file *file, const struct iovec __user *vec,
++          unsigned long vlen, loff_t *pos, rwf_t flags)
++{
++    struct iovec iovstack[UIO_FASTIOV];
++    struct iovec *iov = iovstack;
++    struct iov_iter iter;
++    ssize_t ret; 
++
++    ret = import_iovec(READ, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);
++    if (ret >= 0) { 
++        ret = vfs_iter_read(file, &iter, pos, flags);
++        kfree(iov);
++    }    
++
++    return ret; 
++}
++
++static ssize_t vfs_writev(struct file *file, const struct iovec __user *vec,
++           unsigned long vlen, loff_t *pos, rwf_t flags)
++{
++    struct iovec iovstack[UIO_FASTIOV];
++    struct iovec *iov = iovstack;
++    struct iov_iter iter;
++    ssize_t ret;
++
++    ret = import_iovec(WRITE, vec, vlen, ARRAY_SIZE(iovstack), &iov, &iter);
++    if (ret >= 0) {
++        file_start_write(file);
++        ret = vfs_iter_write(file, &iter, pos, flags);
++        file_end_write(file);
++        kfree(iov);
++    }
++    return ret;
++}
++
++#endif
++
++
+ static void
+ cleanup_vblk_workqueue(struct vhost_blk_io *vbio, struct vhost_virtqueue *vq)
+ {
+@@ -153,12 +199,20 @@
+ 	  for (iov = vbio->iov; iov < &vbio->iov[vbio->nvecs]; iov++) {
+ 		iov->iov_base = mic_addr_in_host(aper_va, iov->iov_base);
+ 	  }
+-		ret = vfs_writev(vbio->file, vbio->iov, vbio->nvecs, &pos);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
++        ret = vfs_writev(vbio->file, vbio->iov, vbio->nvecs, &pos, 0);
++#else
++        ret = vfs_writev(vbio->file, vbio->iov, vbio->nvecs, &pos);
++#endif
+ 	} else {
+ 	  for (iov = vbio->iov; iov < &vbio->iov[vbio->nvecs]; iov++) {
+ 		iov->iov_base = mic_addr_in_host(aper_va, iov->iov_base);
+ 	  }
+-		ret = vfs_readv(vbio->file, vbio->iov, vbio->nvecs, &pos);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
++        ret = vfs_readv(vbio->file, vbio->iov, vbio->nvecs, &pos, 0);
++#else
++        ret = vfs_readv(vbio->file, vbio->iov, vbio->nvecs, &pos);
++#endif
+ 	}
+ 	status = (ret < 0) ? VIRTIO_BLK_S_IOERR : VIRTIO_BLK_S_OK;
+ 	if (vbio->head != -1) {
+@@ -475,7 +529,9 @@
+ 	writel(DISK_SEG_MAX, &vb_shared->blk_config.seg_max);
+ 	writel(SECTOR_SIZE, &vb_shared->blk_config.blk_size);
+ 
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0))
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
++	ret = vfs_getattr(&vblk->virtblk_file->f_path, &stat, STATX_BASIC_STATS, AT_STATX_SYNC_AS_STAT);
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0))
+ 	ret = vfs_getattr(&vblk->virtblk_file->f_path, &stat);
+ #else
+ 	ret = vfs_getattr(vblk->virtblk_file->f_path.mnt,
+diff -Naur mpss-modules-3.8.6/host/vhost/mic_vhost.c mpss-modules-3.8.6.el8/host/vhost/mic_vhost.c
+--- mpss-modules-3.8.6/host/vhost/mic_vhost.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/vhost/mic_vhost.c	2021-02-08 09:52:08.568206067 +0100
+@@ -72,11 +72,17 @@
+ 	add_wait_queue(wqh, &poll->wait);
+ }
+ 
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0))
++static int vhost_poll_wakeup(wait_queue_entry_t *wait, unsigned mode, int sync,
++			     void *key)
++#else
+ static int vhost_poll_wakeup(wait_queue_t *wait, unsigned mode, int sync,
+ 			     void *key)
++#endif
+ {
+ 	struct vhost_poll *poll = container_of(wait, struct vhost_poll, wait);
+ 
++	printk("vhost_poll_wakeup\n");
+ 	if (!((unsigned long)key & poll->mask))
+ 		return 0;
+ 
+diff -Naur mpss-modules-3.8.6/host/vhost/vhost.h mpss-modules-3.8.6.el8/host/vhost/vhost.h
+--- mpss-modules-3.8.6/host/vhost/vhost.h	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/vhost/vhost.h	2021-02-08 09:52:08.568206067 +0100
+@@ -20,6 +20,7 @@
+ #include <linux/virtio_config.h>
+ #include <linux/virtio_ring.h>
+ #include <asm/atomic.h>
++#include <asm/barrier.h>
+ 
+ /* This is for zerocopy, used buffer len is set to 1 when lower device DMA
+  * done */
+@@ -45,7 +46,11 @@
+ struct vhost_poll {
+ 	poll_table                table;
+ 	wait_queue_head_t        *wqh;
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0))
++	wait_queue_entry_t        wait;
++#else
+ 	wait_queue_t              wait;
++#endif
+ 	struct vhost_work	  work;
+ 	unsigned long		  mask;
+ 	struct vhost_dev	 *dev;
+@@ -240,6 +245,10 @@
+ 
+ static inline int vhost_has_feature(struct vhost_dev *dev, int bit)
+ {
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0))
++	unsigned acked_features = smp_load_acquire(&(dev->acked_features));
++#else
++
+ #ifdef RHEL_RELEASE_CODE
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
+ 	unsigned acked_features = rcu_dereference_index_check(dev->acked_features, rcu_read_lock_held());
+@@ -253,6 +262,8 @@
+ 	unsigned acked_features = __rcu_dereference_index_check(dev->acked_features, rcu_read_lock_held());
+ #endif
+ #endif
++
++#endif
+ 	return acked_features & (1 << bit);
+ }
+ 
+diff -Naur mpss-modules-3.8.6/host/vmcore.c mpss-modules-3.8.6.el8/host/vmcore.c
+--- mpss-modules-3.8.6/host/vmcore.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/host/vmcore.c	2021-02-08 09:52:08.568206067 +0100
+@@ -50,7 +50,6 @@
+ #include <linux/elfcore.h>
+ #include <linux/slab.h>
+ #include <linux/highmem.h>
+-#include <linux/bootmem.h>
+ #include <linux/init.h>
+ #include <linux/crash_dump.h>
+ #include <linux/list.h>
+@@ -161,7 +160,7 @@
+ }
+ 
+ /* Reads a page from the oldmem device from given offset. */
+-static ssize_t read_from_oldmem(mic_ctx_t *mic_ctx,
++static ssize_t mic_read_from_oldmem(mic_ctx_t *mic_ctx,
+ 				char *buf, size_t count,
+ 				u64 *ppos, int userbuf)
+ {
+@@ -270,7 +269,7 @@
+ 		tsz = nr_bytes;
+ 
+ 	while (buflen) {
+-		tmp = read_from_oldmem(mic_ctx,buffer, tsz, &start, 1);
++		tmp = mic_read_from_oldmem(mic_ctx,buffer, tsz, &start, 1);
+ 		if (tmp < 0)
+ 			return tmp;
+ 		buflen -= tsz;
+@@ -364,7 +363,7 @@
+ 		notes_section = kmalloc(max_sz, GFP_KERNEL);
+ 		if (!notes_section)
+ 			return -ENOMEM;
+-		rc = read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
++		rc = mic_read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
+ 		if (rc < 0) {
+ 			kfree(notes_section);
+ 			return rc;
+@@ -446,7 +445,7 @@
+ 		notes_section = kmalloc(max_sz, GFP_KERNEL);
+ 		if (!notes_section)
+ 			return -ENOMEM;
+-		rc = read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
++		rc = mic_read_from_oldmem(mic_ctx, notes_section, max_sz, &offset, 0);
+ 		if (rc < 0) {
+ 			kfree(notes_section);
+ 			return rc;
+@@ -626,7 +625,7 @@
+ 	addr = elfcorehdr_addr;
+ 
+ 	/* Read Elf header */
+-	rc = read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf64_Ehdr), &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf64_Ehdr), &addr, 0);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -660,7 +659,7 @@
+ 	if (!mic_ctx->elfcorebuf)
+ 		return -ENOMEM;
+ 	addr = elfcorehdr_addr;
+-	rc = read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
+ 	if (rc < 0) {
+ 		kfree(mic_ctx->elfcorebuf);
+ 		mic_ctx->elfcorebuf = NULL;
+@@ -694,7 +693,7 @@
+ 	addr = elfcorehdr_addr;
+ 
+ 	/* Read Elf header */
+-	rc = read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf32_Ehdr), &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, (char*)&ehdr, sizeof(Elf32_Ehdr), &addr, 0);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -720,7 +719,7 @@
+ 	if (!mic_ctx->elfcorebuf)
+ 		return -ENOMEM;
+ 	addr = elfcorehdr_addr;
+-	rc = read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, mic_ctx->elfcorebuf, mic_ctx->elfcorebuf_sz, &addr, 0);
+ 	if (rc < 0) {
+ 		kfree(mic_ctx->elfcorebuf);
+ 		mic_ctx->elfcorebuf = NULL;
+@@ -752,7 +751,7 @@
+ 	int rc=0;
+ 
+ 	addr = elfcorehdr_addr;
+-	rc = read_from_oldmem(mic_ctx, e_ident, EI_NIDENT, &addr, 0);
++	rc = mic_read_from_oldmem(mic_ctx, e_ident, EI_NIDENT, &addr, 0);
+ 	if (rc < 0)
+ 		return rc;
+ 	if (memcmp(e_ident, ELFMAG, SELFMAG) != 0) {
+diff -Naur mpss-modules-3.8.6/include/mic/micscif_rma.h mpss-modules-3.8.6.el8/include/mic/micscif_rma.h
+--- mpss-modules-3.8.6/include/mic/micscif_rma.h	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/include/mic/micscif_rma.h	2021-02-08 09:52:08.569205994 +0100
+@@ -66,6 +66,7 @@
+ #include <linux/semaphore.h>
+ #include <linux/kthread.h>
+ #include <linux/sched.h>
++#include <linux/sched/signal.h>
+ #include <linux/delay.h>
+ #include <linux/wait.h>
+ #include <asm/bug.h>
+@@ -921,7 +922,9 @@
+ 		} else {
+ 			down_write(&mm->mmap_sem);
+ 		}
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
++#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
++		mm->pinned_vm.counter -= nr_pages;
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
+ 		mm->pinned_vm -= nr_pages;
+ #else
+ 		mm->locked_vm -= nr_pages;
+@@ -937,7 +940,9 @@
+ 	if (mm && mic_ulimit_check && nr_pages) {
+ 		unsigned long locked, lock_limit;
+ 		locked = nr_pages;
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
++#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
++		locked += mm->pinned_vm.counter;
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
+ 		locked += mm->pinned_vm;
+ #else
+ 		locked += mm->locked_vm;
+@@ -948,7 +953,9 @@
+ 				    locked, lock_limit);
+ 			return -ENOMEM;
+ 		} else {
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
++#if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
++			mm->pinned_vm.counter = locked;
++#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 1, 0))
+ 			mm->pinned_vm = locked;
+ #else
+ 			mm->locked_vm = locked;
+diff -Naur mpss-modules-3.8.6/include/mic_common.h mpss-modules-3.8.6.el8/include/mic_common.h
+--- mpss-modules-3.8.6/include/mic_common.h	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/include/mic_common.h	2021-02-08 09:58:21.732047329 +0100
+@@ -274,6 +274,17 @@
+ 	MIC_INVALID
+ } MIC_STATUS;
+ 
++/* Values used for Mic system states.
++   Note that these states *differ* from the Linux kernel 4+ system states
++ */
++typedef enum mic_system_states {
++    MIC_SYSTEM_BOOTING,
++    MIC_SYSTEM_RUNNING,
++    MIC_SYSTEM_HALT,
++    MIC_SYSTEM_POWER_OFF,
++    MIC_SYSTEM_RESTART,
++} MIC_SYSTEM_STATE;
++
+ typedef enum _product_platform_t
+ {
+ 	PLATFORM_SILICON = 0,
+@@ -415,7 +426,7 @@
+ 	product_family_t	bi_family;
+ 	struct board_info	*bd_info;
+ 	sysfs_info_t		sysfs_info;
+-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,14,0))
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
+ 	struct kernfs_node	*sysfs_state;
+ #else
+ 	struct sysfs_dirent	*sysfs_state;
+diff -Naur mpss-modules-3.8.6/include/scif.h mpss-modules-3.8.6.el8/include/scif.h
+--- mpss-modules-3.8.6/include/scif.h	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/include/scif.h	2021-02-08 09:52:08.569205994 +0100
+@@ -45,6 +45,7 @@
+ #include <linux/errno.h>
+ #include <linux/poll.h>
+ #include <linux/pci.h>
++#include <linux/sched/mm.h>
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff -Naur mpss-modules-3.8.6/micscif/micscif_api.c mpss-modules-3.8.6.el8/micscif/micscif_api.c
+--- mpss-modules-3.8.6/micscif/micscif_api.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/micscif/micscif_api.c	2021-02-08 09:52:08.570205922 +0100
+@@ -1981,6 +1981,18 @@
+ 			}
+ 		}
+ 
++
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++		pinned_pages->nr_pages = get_user_pages_remote(
++				current,
++				mm,
++				(uint64_t)addr,
++				nr_pages,
++				!!(prot & SCIF_PROT_WRITE),
++				pinned_pages->pages,
++				pinned_pages->vma,
++				NULL);
++#else
+ 		pinned_pages->nr_pages = get_user_pages(
+ 				current,
+ 				mm,
+@@ -1990,6 +2002,7 @@
+ 				0,
+ 				pinned_pages->pages,
+ 				pinned_pages->vma);
++#endif
+ 		up_write(&mm->mmap_sem);
+ 		if (nr_pages == pinned_pages->nr_pages) {
+ #ifdef RMA_DEBUG
+@@ -2007,7 +2020,11 @@
+ 				/* Roll back any pinned pages */
+ 				for (i = 0; i < pinned_pages->nr_pages; i++) {
+ 					if (pinned_pages->pages[i])
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++						put_page(pinned_pages->pages[i]);
++#else
+ 						page_cache_release(pinned_pages->pages[i]);
++#endif
+ 				}
+ 				prot &= ~SCIF_PROT_WRITE;
+ 				try_upgrade = false;
+@@ -2436,13 +2453,13 @@
+ 	int ret;
+ 	struct reg_range_t *window = pages->cookie;
+ 	struct endpt *ep = (struct endpt *)window->ep;
+-	if (atomic_read(&(&(ep->ref_count))->refcount) > 0) {
++	if (atomic_read((atomic_t *)&(&(ep->ref_count))->refcount) > 0) {
+ 		kref_get(&(ep->ref_count));
+ 	} else {
+ 		WARN_ON(1);
+ 	}
+ 	ret = __scif_put_pages(pages);
+-	if (atomic_read(&(&(ep->ref_count))->refcount) > 0) {
++	if (atomic_read((atomic_t *)&(&(ep->ref_count))->refcount) > 0) {
+ 		kref_put(&(ep->ref_count), scif_ref_rel);
+ 	} else {
+ 		//WARN_ON(1);
+diff -Naur mpss-modules-3.8.6/micscif/micscif_nm.c mpss-modules-3.8.6.el8/micscif/micscif_nm.c
+--- mpss-modules-3.8.6/micscif/micscif_nm.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/micscif/micscif_nm.c	2021-02-08 09:58:09.834913180 +0100
+@@ -1531,22 +1531,22 @@
+ 	mic_ctx = get_per_dev_ctx(i - 1);
+ 
+ 	switch (mic_ctx->sdbic1) {
+-	case SYSTEM_HALT:
+-	case SYSTEM_POWER_OFF:
++	case MIC_SYSTEM_HALT:
++	case MIC_SYSTEM_POWER_OFF:
+ 	{
+ 		adapter_stop_device(mic_ctx, 1, !RESET_REATTEMPT);
+ 		wait_for_reset(mic_ctx);
+ 		mic_ctx->sdbic1 = 0;
+ 		break;
+ 	}
+-	case SYSTEM_RESTART:
++	case MIC_SYSTEM_RESTART:
+ 	{
+ 		mic_setstate(mic_ctx, MIC_LOST);
+ 		mic_ctx->sdbic1 = 0;
+ 		break;
+ 	}
+-	case SYSTEM_BOOTING:
+-	case SYSTEM_RUNNING:
++	case MIC_SYSTEM_BOOTING:
++	case MIC_SYSTEM_RUNNING:
+ #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
+ 	case SYSTEM_SUSPEND_DISK:
+ #endif
+diff -Naur mpss-modules-3.8.6/micscif/micscif_rma.c mpss-modules-3.8.6.el8/micscif/micscif_rma.c
+--- mpss-modules-3.8.6/micscif/micscif_rma.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/micscif/micscif_rma.c	2021-02-08 09:52:08.571205849 +0100
+@@ -57,9 +57,11 @@
+ #ifdef CONFIG_MMU_NOTIFIER
+ static void scif_mmu_notifier_release(struct mmu_notifier *mn,
+ 			struct mm_struct *mm);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ static void scif_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
+ 				struct mm_struct *mm,
+ 				unsigned long address);
++#endif
+ static void scif_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
+ 				       struct mm_struct *mm,
+ 				       unsigned long start, unsigned long end);
+@@ -70,7 +72,14 @@
+ 	.release = scif_mmu_notifier_release,
+ 	.clear_flush_young = NULL,
+ 	.change_pte = NULL,/*TODO*/
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ 	.invalidate_page = scif_mmu_notifier_invalidate_page,
++#else
++	/* Kernel 4.13+ no longer has invalidate_page; set all other struct memember explicitly */
++	.clear_young = NULL,
++	.test_young = NULL,
++	.invalidate_range = NULL,
++#endif
+ 	.invalidate_range_start = scif_mmu_notifier_invalidate_range_start,
+ 	.invalidate_range_end = scif_mmu_notifier_invalidate_range_end};
+ 
+@@ -86,6 +95,7 @@
+ 	return;
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+ static void scif_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
+ 				struct mm_struct *mm,
+ 				unsigned long address)
+@@ -98,6 +108,7 @@
+ 	pr_debug("%s address 0x%lx\n", __func__, address);
+ 	return;
+ }
++#endif
+ 
+ static void scif_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
+ 				       struct mm_struct *mm,
+@@ -413,7 +424,11 @@
+ 				BUG_ON(!page_count(pinned_pages->pages[j]));
+ 				BUG_ON(atomic_long_sub_return(1, &ms_info.rma_pin_cnt) < 0);
+ #endif
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++				put_page(pinned_pages->pages[j]);
++#else
+ 				page_cache_release(pinned_pages->pages[j]);
++#endif
+ 			}
+ 		}
+ 	}
+diff -Naur mpss-modules-3.8.6/micscif/micscif_rma_dma.c mpss-modules-3.8.6.el8/micscif/micscif_rma_dma.c
+--- mpss-modules-3.8.6/micscif/micscif_rma_dma.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/micscif/micscif_rma_dma.c	2021-02-08 09:52:08.571205849 +0100
+@@ -46,6 +46,11 @@
+ #ifndef _MIC_SCIF_
+ #include "mic_common.h"
+ #endif
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++#include <linux/nmi.h>
++#endif
++
++static unsigned long timer_fired = 0;
+ 
+ static __always_inline
+ void *get_local_va(off_t off, struct reg_range_t *window, size_t len)
+@@ -823,10 +828,18 @@
+ 
+ #if !defined(WINDOWS) && !defined(CONFIG_PREEMPT)
+ static int softlockup_threshold = 60;
++
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++static void avert_softlockup(struct timer_list *t)
++{
++	timer_fired = 1;
++}
++#else
+ static void avert_softlockup(unsigned long data)
+ {
+ 	*(unsigned long*)data = 1;
+ }
++#endif
+ 
+ /*
+  * Add a timer to handle the case of hogging the cpu for
+@@ -839,8 +852,13 @@
+  */
+ static inline void add_softlockup_timer(struct timer_list *timer, unsigned long *data)
+ {
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++	timer_setup(timer, avert_softlockup, 0);
++#else
+ 	setup_timer(timer, avert_softlockup, (unsigned long) data);
++#endif
+ 	timer->expires = jiffies + usecs_to_jiffies(softlockup_threshold * 1000000 / 3);
++
+ 	add_timer(timer);
+ }
+ 
+@@ -873,7 +891,6 @@
+     uint64_t src_start_offset, dst_start_offset;
+ 	int ret = 0;
+ #if !defined(WINDOWS) && !defined(CONFIG_PREEMPT)
+-	unsigned long timer_fired = 0;
+ 	struct timer_list timer;
+ 	int cpu = smp_processor_id();
+ 	add_softlockup_timer(&timer, &timer_fired);
+diff -Naur mpss-modules-3.8.6/micscif/micscif_select.c mpss-modules-3.8.6.el8/micscif/micscif_select.c
+--- mpss-modules-3.8.6/micscif/micscif_select.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/micscif/micscif_select.c	2021-02-08 09:52:08.571205849 +0100
+@@ -50,6 +50,10 @@
+ #include <linux/sched/rt.h>
+ #endif
+ 
++#ifndef set_mb
++#define set_mb(var, value)  do { (var) = (value); mb(); } while (0)
++#endif
++
+ struct poll_table_page {
+ 	struct poll_table_page *next;
+ 	struct poll_table_entry *entry;
+@@ -191,7 +195,11 @@
+ 	return table->entry++;
+ }
+ 
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0))
++static int __pollwake(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
++#else
+ static int __pollwake(wait_queue_t *wait, unsigned mode, int sync, void *key)
++#endif
+ {
+ 	struct poll_wqueues *pwq = wait->private;
+ 	DECLARE_WAITQUEUE(dummy_wait, pwq->polling_task);
+@@ -217,7 +225,11 @@
+ 	return default_wake_function(&dummy_wait, mode, sync, key);
+ }
+ 
++#if (LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0))
++static int pollwake(wait_queue_entry_t *wait, unsigned mode, int sync, void *key)
++#else
+ static int pollwake(wait_queue_t *wait, unsigned mode, int sync, void *key)
++#endif
+ {
+ 	struct poll_table_entry *entry;
+ 
+diff -Naur mpss-modules-3.8.6/network-scripts/ifdown mpss-modules-3.8.6.el8/network-scripts/ifdown
+--- mpss-modules-3.8.6/network-scripts/ifdown	1970-01-01 01:00:00.000000000 +0100
++++ mpss-modules-3.8.6.el8/network-scripts/ifdown	2021-02-08 09:52:08.571205849 +0100
+@@ -0,0 +1,182 @@
++#!/bin/bash
++# Network Interface Configuration System
++# Copyright (c) 1996-2009 Red Hat, Inc. all rights reserved.
++#
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License, version 2,
++# as published by the Free Software Foundation.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
++
++. /etc/init.d/functions
++. /etc/mpss/network-scripts/network-functions
++. /etc/mpss/network-scripts/network
++
++cd /etc/sysconfig/network-scripts
++
++CONFIG=${1}
++
++[ -z "${CONFIG}" ] && {
++    echo $"Usage: ifdown <configuration>" >&2
++    exit 1
++}
++
++need_config "${CONFIG}"
++
++[ -f "${CONFIG}" ] || {
++    echo $"Usage: ifdown <configuration>" >&2
++    exit 1
++}
++
++source_config
++
++# Check to make sure the device is actually up
++check_device_down ${DEVICE} && [ "$BOOTPROTO" != "dhcp" -a "$BOOTPROTO" != "bootp" ] && [ -n "$VLAN" -a "$VLAN" != "yes" ] && exit 0
++
++if [ -n "${TEAM_MASTER}" ] && [ ! "${DEVICETYPE}" = "TeamPort" ] && [ -x ./ifdown-TeamPort ]; then
++    ./ifdown-TeamPort ${CONFIG} $2
++fi
++
++if [ "${SLAVE}" != "yes" -o -z "${MASTER}" ]; then
++    if [ -n "${HWADDR}" -a -z "${MACADDR}" ]; then
++        FOUNDMACADDR=$(get_hwaddr ${REALDEVICE})
++        if [ -n "${FOUNDMACADDR}" -a "${FOUNDMACADDR}" != "${HWADDR}" ]; then
++            NEWCONFIG=$(get_config_by_hwaddr ${FOUNDMACADDR})
++            if [ -n "${NEWCONFIG}" ]; then
++                eval $(LANG=C grep -F "DEVICE=" $NEWCONFIG)
++            else
++                net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
++                exit 1
++            fi
++            if [ -n "${NEWCONFIG}" -a "${NEWCONFIG##*/}" != "${CONFIG##*/}" -a "${DEVICE}" = "${REALDEVICE}" ]; then
++                exec /sbin/ifdown ${NEWCONFIG}
++            else
++                net_log $"Device ${DEVICE} has MAC address ${FOUNDMACADDR}, instead of configured address ${HWADDR}. Ignoring."
++                exit 1
++            fi
++        fi
++    fi
++fi
++
++if is_bonding_device ${DEVICE} ; then
++    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=['\"]\?${DEVICE}['\"]\?\([[:space:]#]\|$\)" /etc/mpss/network-scripts/ifcfg-*) ; do
++        is_ignored_file "$device" && continue
++        /sbin/ifdown ${device##*/}
++    done
++    for arg in $BONDING_OPTS ; do
++        key=${arg%%=*};
++        [[ "${key}" != "arp_ip_target" ]] && continue
++        value=${arg##*=};
++        if [ "${value:0:1}" != "" ]; then
++            OLDIFS=$IFS;
++            IFS=',';
++            for arp_ip in $value; do
++                if grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
++                    echo "-$arp_ip" > /sys/class/net/${DEVICE}/bonding/arp_ip_target
++                fi
++            done
++            IFS=$OLDIFS;
++        else
++            value=${value#+};
++            if grep -q $value /sys/class/net/${DEVICE}/bonding/arp_ip_target; then
++                echo "-$value" > /sys/class/net/${DEVICE}/bonding/arp_ip_target
++            fi
++        fi
++    done
++fi
++
++#/etc/mpss/network-scripts/ifdown-ipv6 ${CONFIG}
++
++retcode=0
++
++for VER in "" 6 ; do
++    if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
++        dhcpid=$(cat /var/run/dhclient$VER-${DEVICE}.pid)
++        generate_lease_file_name $VER
++        if is_true "$DHCPRELEASE";  then
++            /sbin/dhclient -r -lf ${LEASEFILE} -pf /var/run/dhclient$VER-${DEVICE}.pid ${DEVICE} >/dev/null 2>&1
++            retcode=$?
++        else
++            kill $dhcpid >/dev/null 2>&1
++            retcode=$?
++            reason=STOP$VER interface=${DEVICE} /sbin/dhclient-script
++        fi
++        if [ -f "/var/run/dhclient$VER-${DEVICE}.pid" ]; then
++            rm -f /var/run/dhclient$VER-${DEVICE}.pid
++            kill $dhcpid >/dev/null 2>&1
++        fi  
++    fi
++done
++
++# we can't just delete the configured address because that address
++# may have been changed in the config file since the device was
++# brought up.  Flush all addresses associated with this
++# instance instead.
++if [ -d "/sys/class/net/${REALDEVICE}" ]; then
++    LABEL=
++    if [ "${REALDEVICE}" != "${DEVICE}" ]; then
++        LABEL="label ${DEVICE}"
++    fi
++    if [ "${REALDEVICE}" = "lo" ]; then
++        TIMEOUT=""
++        [ -x /usr/bin/timeout ] && TIMEOUT="/usr/bin/timeout --signal=SIGQUIT 4"
++        $TIMEOUT ip addr flush dev ${REALDEVICE} ${LABEL} scope global 2>/dev/null
++        $TIMEOUT ip addr flush dev ${REALDEVICE} ${LABEL} scope host 2>/dev/null
++    else
++        ip addr flush dev ${REALDEVICE} ${LABEL} scope global 2>/dev/null
++        ip -4 addr flush dev ${REALDEVICE} ${LABEL} scope host 2>/dev/null
++    fi
++
++    if [ "${SLAVE}" = "yes" -a -n "${MASTER}" ]; then
++        echo "-${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
++    fi
++
++    if [ "${REALDEVICE}" = "${DEVICE}" ]; then
++        ip link set dev ${DEVICE} down 2>/dev/null
++    fi
++fi
++[ "$retcode" = "0" ] && retcode=$?
++
++if [ -n "${BRIDGE}" ] && [ -x /usr/sbin/brctl ]; then
++    /sbin/ip link set dev ${DEVICE} down
++    /usr/sbin/brctl delif -- ${BRIDGE} ${DEVICE}
++    # Upon removing a device from a bridge,
++    # it's necessary to make radvd reload its config
++    [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
++    if [ -d /sys/class/net/${BRIDGE}/brif ] && [ $(ls -1 /sys/class/net/${BRIDGE}/brif | wc -l) -eq 0 ]; then
++        /usr/sbin/brctl delbr -- ${BRIDGE}
++    fi
++fi
++
++if [ "${TYPE}" = "Tap" ]; then
++    TUNMODE="mode tap"
++    [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
++    ip tuntap del ${TUNMODE} dev ${DEVICE} >/dev/null
++fi
++
++if [ -n "${TEAM_CONFIG}" ] && [ ! "${DEVICETYPE}" = "Team" ] && [ -x ./ifdown-Team ]; then
++    ./ifdown-Team ${CONFIG} $2
++fi
++
++# wait up to 5 seconds for device to actually come down...
++waited=0
++while ! check_device_down ${DEVICE} && [ "$waited" -lt 50 ] ; do
++    sleep 0.01
++    waited=$(($waited+1))
++done
++
++if [ -n "$VLAN" ]; then
++    # 802.1q VLAN
++    if [ -f /proc/net/vlan/${DEVICE} ]; then
++        ip link delete ${DEVICE} type vlan
++    fi
++fi
++
++exit $retcode
+diff -Naur mpss-modules-3.8.6/network-scripts/ifup mpss-modules-3.8.6.el8/network-scripts/ifup
+--- mpss-modules-3.8.6/network-scripts/ifup	1970-01-01 01:00:00.000000000 +0100
++++ mpss-modules-3.8.6.el8/network-scripts/ifup	2021-02-08 09:52:08.572205776 +0100
+@@ -0,0 +1,383 @@
++#!/bin/bash
++# Network Interface Configuration System
++# Copyright (c) 1996-2014 Red Hat, Inc. all rights reserved.
++#
++# This program is free software; you can redistribute it and/or modify
++# it under the terms of the GNU General Public License, version 2,
++# as published by the Free Software Foundation.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program; if not, write to the Free Software
++# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
++
++. /etc/init.d/functions
++. /etc/mpss/network-scripts/network-functions
++. /etc/mpss/network-scripts/network
++
++cd /etc/sysconfig/network-scripts
++
++CONFIG=${1}
++
++[ -z "${CONFIG}" ] && {
++    echo $"Usage: ifup <configuration>" >&2
++    exit 1
++}
++
++need_config "${CONFIG}"
++
++source_config
++
++if [ "${BOOTPROTO}" = "bootp" -o "${BOOTPROTO}" = "dhcp" ]; then
++    DYNCONFIG=true
++fi
++
++# load the module associated with that device
++# /sbin/modprobe ${REALDEVICE}
++is_available ${REALDEVICE}
++
++# bail out, if the MAC does not fit
++if [ -n "${HWADDR}" ]; then
++    FOUNDMACADDR=$(get_hwaddr ${REALDEVICE})
++    if [ "${FOUNDMACADDR}" != "${HWADDR}" -a "${FOUNDMACADDR}" != "${MACADDR}" ]; then
++        net_log $"Device ${DEVICE} has different MAC address than expected, ignoring."
++        exit 1
++    fi
++fi
++
++# If the device is a bridge, create it with brctl, if available.
++if [ "${TYPE}" = "Bridge" ]; then
++    if [ ! -x /usr/sbin/brctl ]; then
++        net_log $"Bridge support not available: brctl not found"
++        exit 1
++    fi
++
++    if [ ! -d /sys/class/net/${DEVICE}/bridge ]; then
++        /usr/sbin/brctl addbr -- ${DEVICE} || exit 1
++    fi
++
++    [ -n "${DELAY}" ] && /usr/sbin/brctl setfd -- ${DEVICE} ${DELAY}
++    [ -n "${STP}" ] && /usr/sbin/brctl stp -- ${DEVICE} ${STP}
++    [ -n "${PRIO}" ] && /usr/sbin/brctl setbridgeprio ${DEVICE} ${PRIO}
++    [ -n "${AGEING}" ] && /usr/sbin/brctl setageing ${DEVICE} ${AGEING}
++
++    # add the bits to setup driver parameters here
++    for arg in $BRIDGING_OPTS ; do
++        key=${arg%%=*};
++        value=${arg##*=};
++        if [ "${key}" != "multicast_router" -a "${key}" != "hash_max" -a "${key}" != "multicast_snooping" ]; then
++            echo $value > /sys/class/net/${DEVICE}/bridge/$key
++        fi
++    done
++
++    # set LINKDELAY (used as timeout when calling check_link_down())
++    # to at least (${DELAY} * 2) + 7 if STP is enabled. This is the
++    # minimum time required for /sys/class/net/$REALDEVICE/carrier to
++    # become 1 after "ip link set dev $DEVICE up" is called.
++    if is_true "${STP}"; then
++        if [ -n "${DELAY}" ]; then
++          forward_delay="${DELAY}"
++        else
++          # If the ${DELAY} value is not set by the user, then we need to obtain
++          # the forward_delay value from kernel first, and convert it to seconds.
++          # Otherwise STP might not correctly complete the startup before trying
++          # to obtain an IP address from DHCP.
++          forward_delay="$(cat /sys/devices/virtual/net/${DEVICE}/bridge/forward_delay)"
++          forward_delay="$(convert2sec ${forward_delay} centi)"
++        fi
++
++        forward_delay=$(bc -q <<< "${forward_delay} * 2 + 7")
++
++        # It's possible we are comparing floating point numbers here, therefore
++        # we are using 'bc' for comparison. The [ ] and [[ ]] do not work.
++        (( $(bc -l <<< "${LINKDELAY:-0} < ${forward_delay}") )) && LINKDELAY=${forward_delay}
++
++        unset forward_delay
++    fi
++fi
++
++# Create tap device.
++if [ "${TYPE}" = "Tap" ]; then
++    [ -n "${OWNER}" ] && OWNER="user ${OWNER}"
++    TUNMODE="mode tap"
++    [[ ${DEVICE} == tun* ]] && TUNMODE="mode tun"
++    ip tuntap add ${TUNMODE} ${OWNER} dev ${DEVICE} > /dev/null
++fi
++
++# Team master initialization.
++if [ -n "${TEAM_CONFIG}" ] && [ ! "${DEVICETYPE}" = "Team" ] && [ -x ./ifup-Team ]; then
++    ./ifup-Team ${CONFIG} $2
++fi
++
++if [ -z "${REALDEVICE}" ]; then
++  net_log $"Device name does not seem to be present."
++  exit 1
++fi
++
++# now check the real state
++is_available_wait ${REALDEVICE} ${DEVTIMEOUT} || {
++    if [ -n "$alias" ]; then
++        net_log $"$alias device ${DEVICE} does not seem to be present, delaying initialization."
++    else
++        net_log $"Device ${DEVICE} does not seem to be present, delaying initialization."
++    fi
++    exit 1
++}
++
++
++# this isn't the same as the MAC in the configuration filename.  It is
++# available as a configuration option in the config file, forcing the kernel
++# to think an ethernet card has a different MAC address than it really has.
++if [ -n "${MACADDR}" ]; then
++    ip link set dev ${DEVICE} address ${MACADDR}
++fi
++if [ -n "${MTU}" ]; then
++    ip link set dev ${DEVICE} mtu ${MTU}
++fi
++
++# is the device wireless? If so, configure wireless device specifics
++is_wireless_device ${DEVICE} && . ./ifup-wireless
++
++# Team slave device?
++if [ -n "${TEAM_MASTER}" ] && [ ! "${DEVICETYPE}" = "TeamPort" ] && [ -x ./ifup-TeamPort ]; then
++    ./ifup-TeamPort ${CONFIG} $2
++    ethtool_set
++    exit 0
++fi
++
++# slave device?
++if [ "${SLAVE}" = yes -a "${ISALIAS}" = no -a "${MASTER}" != "" ]; then
++    install_bonding_driver ${MASTER}
++    grep -wq "${DEVICE}" /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null || {
++        /sbin/ip link set dev ${DEVICE} down
++        echo "+${DEVICE}" > /sys/class/net/${MASTER}/bonding/slaves 2>/dev/null
++    }
++    ethtool_set
++
++    exit 0
++fi
++
++# Bonding initialization. For DHCP, we need to enslave the devices early,
++# so it can actually get an IP.
++if [ "$ISALIAS" = no ] && is_bonding_device ${DEVICE} ; then
++    install_bonding_driver ${DEVICE}
++    /sbin/ip link set dev ${DEVICE} up
++    for device in $(LANG=C grep -l "^[[:space:]]*MASTER=['\"]\?${DEVICE}['\"]\?\([[:space:]#]\|$\)" /etc/mpss/network-scripts/ifcfg-*) ; do
++        is_ignored_file "$device" && continue
++        /sbin/ifup ${device##*/} || net_log "Unable to start slave device ${device##*/} for master ${DEVICE}." warning
++    done
++
++    [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++
++    # add the bits to setup the needed post enslavement parameters
++    for arg in $BONDING_OPTS ; do   
++        key=${arg%%=*};
++        value=${arg##*=};
++        if [ "${key}" = "primary" ]; then 
++            echo $value > /sys/class/net/${DEVICE}/bonding/$key
++        fi
++    done
++fi
++
++# If the device is part of a bridge, add the device to the bridge
++if [ -n "${BRIDGE}" ] && [ -x /usr/sbin/brctl ]; then
++    if [ ! -d /sys/class/net/${BRIDGE}/bridge ]; then
++        /usr/sbin/brctl addbr -- ${BRIDGE} 2>/dev/null
++    fi
++    /sbin/ip addr flush dev ${DEVICE} 2>/dev/null
++    /sbin/ip link set dev ${DEVICE} up
++    ethtool_set
++    [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++    /usr/sbin/brctl addif -- ${BRIDGE} ${DEVICE}
++    # add the bits to setup driver parameters here
++    for arg in $BRIDGING_OPTS ; do
++        key=${arg%%=*};
++        value=${arg##*=};
++        echo $value > /sys/class/net/${DEVICE}/brport/$key
++    done
++    # Upon adding a device to a bridge,
++    # it's necessary to make radvd reload its config
++    [ -r /var/run/radvd/radvd.pid ] && kill -HUP $(cat /var/run/radvd/radvd.pid)
++    exit 0
++fi
++
++if [ -n "${DYNCONFIG}" ] && [ -x /sbin/dhclient ]; then
++    if is_true "${PERSISTENT_DHCLIENT}"; then
++        ONESHOT="";
++    else
++        ONESHOT="-1";
++    fi;
++    generate_config_file_name
++    generate_lease_file_name
++
++    # Initialize the dhclient args and obtain the hostname options if needed:
++    DHCLIENTARGS="${DHCLIENTARGS} ${ONESHOT} -q ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient-${DEVICE}.pid"
++    set_hostname_options DHCLIENTARGS
++
++    echo
++    echo -n $"Determining IP information for ${DEVICE}..."
++    if ! is_true "${PERSISTENT_DHCLIENT}" && check_link_down ${DEVICE}; then
++        echo $" failed; no link present.  Check cable?"
++        exit 1
++    fi
++
++    ethtool_set
++
++    if /sbin/dhclient ${DHCLIENTARGS} ${DEVICE} ; then
++        echo $" done."
++        dhcpipv4="good"
++    else
++        echo $" failed."
++        if is_true "${IPV4_FAILURE_FATAL}"; then
++            exit 1
++        fi
++        if is_false "$IPV6INIT" || ! is_true "$DHCPV6C"; then
++            exit 1
++        fi
++        net_log "Unable to obtain IPv4 DHCP address ${DEVICE}." warning
++    fi
++    # end dynamic device configuration
++else 
++    if [ -z "${IPADDR}" -a -z "${IPADDR0}" -a -z "${IPADDR1}" -a -z "${IPADDR2}" ]; then
++        # enable device without IP, useful for e.g. PPPoE
++        ip link set dev ${REALDEVICE} up
++        ethtool_set
++        [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++    else
++
++        expand_config
++
++        [ -n "${ARP}" ] && \
++            ip link set dev ${REALDEVICE} $(toggle_value arp $ARP)
++
++        if ! ip link set dev ${REALDEVICE} up ; then
++            net_log $"Failed to bring up ${DEVICE}."
++            exit 1
++        fi
++
++        ethtool_set
++
++        [ -n "${LINKDELAY}" ] && /bin/sleep ${LINKDELAY}
++
++        if [ "${DEVICE}" = "lo" ]; then
++            SCOPE="scope host"
++        else
++            SCOPE=${SCOPE:-}
++        fi
++
++        if [ -n "$SRCADDR" ]; then
++            SRC="src $SRCADDR"
++        else
++            SRC=
++        fi
++
++        # set IP address(es)
++        for idx in {0..256} ; do
++            if [ -z "${ipaddr[$idx]}" ]; then
++                break
++            fi
++
++            if ! LC_ALL=C ip addr ls ${REALDEVICE} | LC_ALL=C grep -q "${ipaddr[$idx]}/${prefix[$idx]}" ; then
++                if [ "${REALDEVICE}" != "lo" ] && [ "${arpcheck[$idx]}" != "no" ] ; then
++                    ARPING=$(/sbin/arping -c 2 -w ${ARPING_WAIT:-3} -D -I ${REALDEVICE} ${ipaddr[$idx]})
++                    if [ $? = 1 ]; then
++                        ARPINGMAC=$(echo $ARPING |  sed -ne 's/.*\[\(.*\)\].*/\1/p')
++                        net_log $"Error, some other host ($ARPINGMAC) already uses address ${ipaddr[$idx]}."
++                        exit 1
++                    fi
++                fi
++
++                if ! ip addr add ${ipaddr[$idx]}/${prefix[$idx]} \
++                    brd ${broadcast[$idx]:-+} dev ${REALDEVICE} ${SCOPE} label ${DEVICE}; then
++                    net_log $"Error adding address ${ipaddr[$idx]} for ${DEVICE}."
++                fi
++            fi
++
++            if [ -n "$SRCADDR" ]; then
++                sysctl -w "net.ipv4.conf.${SYSCTLDEVICE}.arp_filter=1" >/dev/null 2>&1
++            fi
++
++            # update ARP cache of neighboring computers
++            if ! is_false "${arpupdate[$idx]}" && [ "${REALDEVICE}" != "lo" ]; then
++                /sbin/arping -q -A -c 1 -I ${REALDEVICE} ${ipaddr[$idx]}
++                ( sleep 2;
++                /sbin/arping -q -U -c 1 -I ${REALDEVICE} ${ipaddr[$idx]} ) > /dev/null 2>&1 < /dev/null &
++            fi
++
++            # set lifetime of address to forever
++            ip addr change ${ipaddr[$idx]}/${prefix[$idx]} dev ${REALDEVICE} valid_lft forever preferred_lft forever
++        done
++
++        # Set a default route.
++        if [ "${DEFROUTE}" != "no" ] && [ -z "${GATEWAYDEV}" -o "${GATEWAYDEV}" = "${REALDEVICE}" ]; then
++            # set up default gateway. replace if one already exists
++            if [ -n "${GATEWAY}" ] && [ "$(ipcalc --network ${GATEWAY} ${netmask[0]} 2>/dev/null)" = "NETWORK=${NETWORK}" ]; then
++                ip route replace default ${METRIC:+metric $METRIC} \
++                    ${EXTRA_ROUTE_OPTS} \
++                    via ${GATEWAY} ${WINDOW:+window $WINDOW} ${SRC} \
++                    ${GATEWAYDEV:+dev $GATEWAYDEV} ||
++                    net_log $"Error adding default gateway ${GATEWAY} for ${DEVICE}."
++            elif [ "${GATEWAYDEV}" = "${DEVICE}" ]; then
++                ip route replace default ${METRIC:+metric $METRIC} \
++                    ${EXTRA_ROUTE_OPTS} \
++                    ${SRC} ${WINDOW:+window $WINDOW} dev ${REALDEVICE} ||
++                    net_log $"Error adding default gateway for ${REALDEVICE}."
++            fi
++        fi
++    fi
++fi
++
++# Add Zeroconf route.
++if [ -z "${NOZEROCONF}" -a "${ISALIAS}" = "no" -a "${REALDEVICE}" != "lo" ]; then
++    ip route add 169.254.0.0/16 dev ${REALDEVICE} metric $((1000 + $(cat /sys/class/net/${REALDEVICE}/ifindex))) scope link
++fi
++
++if [ "${TYPE}" = "Bridge" ]; then
++    for arg in $BRIDGING_OPTS ; do
++        key=${arg%%=*};
++        value=${arg##*=};
++        if [ "${key}" = "multicast_router" -o "${key}" = "hash_max" -o "${key}" = "multicast_snooping" ]; then
++            echo $value > /sys/class/net/${DEVICE}/bridge/$key
++        fi
++    done
++fi
++
++# IPv6 initialisation?
++#/etc/mpss/network-scripts/ifup-ipv6 ${CONFIG}
++if is_true "${DHCPV6C}" && [ -x /sbin/dhclient ]; then
++
++    # Assign interface into a firewalld zone so we can
++    # obtain the IPv6 via DHCPv6 (empty ZONE means default):
++    if [ "${REALDEVICE}" != "lo" ]; then
++        dbus-send --print-reply --system --dest=org.fedoraproject.FirewallD1 \
++                  /org/fedoraproject/FirewallD1 \
++                  org.fedoraproject.FirewallD1.zone.changeZoneOfInterface \
++                  string:"${ZONE}" string:"${DEVICE}" \
++                  > /dev/null 2>&1
++    fi
++
++    generate_config_file_name 6
++    generate_lease_file_name 6
++    echo
++    echo -n $"Determining IPv6 information for ${DEVICE}..."
++
++    # Initialize the dhclient args for IPv6 and obtain the hostname options if needed:
++    DHCLIENTARGS="-6 -1 ${DHCPV6C_OPTIONS} ${DHCLIENTCONF} -lf ${LEASEFILE} -pf /var/run/dhclient6-${DEVICE}.pid ${DEVICE}"
++    set_hostname_options DHCLIENTARGS
++
++    if /sbin/dhclient $DHCLIENTARGS; then
++        echo $" done."
++    else
++        echo $" failed."
++        if [ "${dhcpipv4}" = "good" -o -n "${IPADDR}" ]; then
++            net_log "Unable to obtain IPv6 DHCP address ${DEVICE}." warning
++        else
++            exit 1
++        fi
++    fi
++fi
++
+diff -Naur mpss-modules-3.8.6/network-scripts/network mpss-modules-3.8.6.el8/network-scripts/network
+--- mpss-modules-3.8.6/network-scripts/network	1970-01-01 01:00:00.000000000 +0100
++++ mpss-modules-3.8.6.el8/network-scripts/network	2021-02-08 09:52:08.572205776 +0100
+@@ -0,0 +1,2 @@
++
++NOZEROCONF=yes
+diff -Naur mpss-modules-3.8.6/network-scripts/network-functions mpss-modules-3.8.6.el8/network-scripts/network-functions
+--- mpss-modules-3.8.6/network-scripts/network-functions	1970-01-01 01:00:00.000000000 +0100
++++ mpss-modules-3.8.6.el8/network-scripts/network-functions	2021-02-08 09:52:08.572205776 +0100
+@@ -0,0 +1,740 @@
++# -*-Shell-script-*-
++#
++# This file is not a stand-alone shell script; it provides functions 
++# to network scripts that source it.
++
++# Set up a default search path.
++PATH="/sbin:/usr/sbin:/bin:/usr/bin"
++export PATH
++
++# We need to initialize the $HOSTNAME variable by ourselves now:
++# (It was previously done for RHEL-6 branch, but got lost in time.)
++HOSTNAME="$(hostname)"
++
++[ -z "$__sed_discard_ignored_files" ] && . /etc/init.d/functions
++
++get_hwaddr ()
++{
++    if [ -f /sys/class/net/${1}/address ]; then
++        tr '[a-z]' '[A-Z]' < /sys/class/net/${1}/address
++    elif [ -d "/sys/class/net/${1}" ]; then
++        LC_ALL= LANG= ip -o link show ${1} 2>/dev/null | \
++            awk '{ print toupper(gensub(/.*link\/[^ ]* ([[:alnum:]:]*).*/,
++                                        "\\1", 1)); }'
++    fi
++}
++
++get_config_by_device ()
++{
++    LANG=C grep -l "^[[:space:]]*DEVICE=['\"]\?${1}['\"]\?\([[:space:]#]\|$\)" \
++        /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
++}
++
++get_config_by_hwaddr ()
++{
++    LANG=C grep -il "^[[:space:]]*HWADDR=['\"]\?${1}['\"]\?\([[:space:]#]\|$\)" /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
++}
++
++get_config_by_subchannel ()
++{
++    LANG=C grep -E -i -l \
++        "^[[:space:]]*SUBCHANNELS=['\"]?([0-9]\.[0-9]\.[a-f0-9]+,){0,2}${1}(,[0-9]\.[0-9]\.[a-f0-9]+){0,2}['\"]?([[:space:]]+#|[[:space:]]*$)" \
++        /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
++}
++
++get_config_by_name ()
++{
++    LANG=C grep -E -i -l "^[[:space:]]*NAME=\"(Auto |System )?${1}\"" \
++        /etc/sysconfig/network-scripts/ifcfg-* \
++        | LC_ALL=C sed -e "$__sed_discard_ignored_files"
++}
++
++get_device_by_hwaddr ()
++{
++    LANG=C ip -o link | awk -F ': ' -vIGNORECASE=1 '!/link\/ieee802\.11/ && /'"$1"'/ { print $2 }'
++}
++
++get_uuid_by_config ()
++{
++    dbus-send --system --print-reply --dest=com.redhat.ifcfgrh1 /com/redhat/ifcfgrh1 com.redhat.ifcfgrh1.GetIfcfgDetails string:"/etc/sysconfig/network-scripts/$1" 2>/dev/null | awk -F '"' '/string / { print $2 }'
++}
++
++generate_lease_file_name ()
++{
++    local ver=$1
++    LEASEFILE="/var/lib/dhclient/dhclient$ver-${DEVICE}.leases"
++    if [ -f $LEASEFILE ]; then
++         return
++    fi
++    LEASEFILE="/var/lib/dhclient/dhclient$ver-${UUID}-${DEVICE}.lease"
++}
++
++generate_config_file_name ()
++{
++    local ver=$1
++    if [ -s /etc/dhcp/dhclient$ver-${DEVICE}.conf ]; then
++        DHCLIENTCONF="-cf /etc/dhcp/dhclient$ver-${DEVICE}.conf";
++    elif [ -s /etc/dhclient$ver-${DEVICE}.conf ]; then
++        DHCLIENTCONF="-cf /etc/dhclient$ver-${DEVICE}.conf";
++    else
++        DHCLIENTCONF='';
++    fi
++}
++
++need_config ()
++{
++    local nconfig
++
++    CONFIG="ifcfg-${1}"
++    [ -f "${CONFIG}" ] && return
++    CONFIG="${1##*/}"
++    [ -f "${CONFIG}" ] && return
++    nconfig=$(get_config_by_name "${1}")
++    if [ -n "$nconfig" ] && [ -f "$nconfig" ]; then
++        CONFIG=${nconfig##*/}
++        return
++    fi
++    local addr=$(get_hwaddr ${1})
++    if [ -n "$addr" ]; then
++        nconfig=$(get_config_by_hwaddr ${addr})
++        if [ -n "$nconfig" ] ; then
++            CONFIG=${nconfig##*/}
++            [ -f "${CONFIG}" ] && return
++        fi
++    fi
++    nconfig=$(get_config_by_device ${1})
++    if [ -n "$nconfig" ] && [ -f "$nconfig" ]; then
++        CONFIG=${nconfig##*/}
++        return
++    fi
++}
++
++source_config ()
++{
++    CONFIG=${CONFIG##*/}
++    DEVNAME=${CONFIG##ifcfg-}
++    . /etc/sysconfig/network-scripts/$CONFIG
++    [ -r "keys-$DEVNAME" ] && . /etc/sysconfig/network-scripts/keys-$DEVNAME
++    case "$TYPE" in
++    Ethernet)
++        DEVICETYPE="eth"
++        ;;
++    CIPE)
++        DEVICETYPE="cipcb"
++        ;;
++    IPSEC)
++        DEVICETYPE="ipsec"
++        ;;
++    Modem)
++        DEVICETYPE="ppp"
++        ;;
++    xDSL)
++        DEVICETYPE="ppp"
++        ;;
++    ISDN)
++        DEVICETYPE="ippp"
++        ;;
++    Wireless)
++        DEVICETYPE="eth"
++        ;;
++    "Token Ring")
++        DEVICETYPE="eth"
++        ;;
++    CTC)
++        DEVICETYPE="ctc"
++        ;;
++    GRE | GRE6 | IPIP | IPIP6)
++        DEVICETYPE="tunnel"
++        ;;
++    SIT | sit)
++        DEVICETYPE="sit"
++        ;;
++    InfiniBand | infiniband)
++        DEVICETYPE="ib"
++        ;;
++    OVS*)
++        DEVICETYPE="ovs"
++        ;;
++    esac
++    if [ -n "$HWADDR" ]; then
++        HWADDR=$(tr '[a-z]' '[A-Z]' <<<"$HWADDR")
++    fi
++    if [ -n "$MACADDR" ]; then
++        MACADDR=$(tr '[a-z]' '[A-Z]' <<<"$MACADDR")
++    fi
++    [ -z "$DEVICE" -a -n "$HWADDR" ] && DEVICE=$(get_device_by_hwaddr $HWADDR)
++    [ -z "$DEVICETYPE" ] && DEVICETYPE=$(echo ${DEVICE} | sed "s/[0-9]*$//")
++    [ -z "$REALDEVICE" -a -n "$PARENTDEVICE" ] && REALDEVICE=$PARENTDEVICE
++    [ -z "$REALDEVICE" ] && REALDEVICE=${DEVICE%%:*}
++    [ -z "$SYSCTLDEVICE" ] && SYSCTLDEVICE=${REALDEVICE/.//}
++    if [ "${DEVICE}" != "${REALDEVICE}" ]; then
++        ISALIAS=yes
++    else
++        ISALIAS=no
++    fi
++    if is_nm_running && [ "$REALDEVICE" != "lo" ] ; then
++        nm_con_load "$CONFIG"
++        if ! is_false $NM_CONTROLLED; then
++            UUID=$(get_uuid_by_config $CONFIG)
++            [ -n "$UUID" ] && _use_nm=true
++        fi
++    fi
++}
++
++nm_con_load () {
++    dbus-send --system --print-reply \
++        --dest=org.freedesktop.NetworkManager \
++        /org/freedesktop/NetworkManager/Settings \
++        org.freedesktop.NetworkManager.Settings.LoadConnections \
++        array:string:"/etc/sysconfig/network-scripts/${1}" >/dev/null 2>&1
++}
++
++ethtool_set()
++{
++    oldifs=$IFS;
++    IFS=';';
++    if [ -n "${ETHTOOL_DELAY}" ]; then
++      # Convert microseconds to seconds:
++      local ETHTOOL_DELAY_SEC=$(convert2sec ${ETHTOOL_DELAY} micro)
++      sleep ${ETHTOOL_DELAY_SEC}
++    fi
++    for opts in $ETHTOOL_OPTS ; do
++        IFS=$oldifs;
++        if [[ "${opts}" =~ [[:space:]]*- ]]; then
++            /sbin/ethtool $opts
++        else
++            /sbin/ethtool -s ${REALDEVICE} $opts
++        fi
++        IFS=';';
++    done
++    IFS=$oldifs;
++}
++
++expand_config ()
++{
++    local i=0 val
++    for idx in '' {0..255} ; do
++        ipaddr[$i]=$(eval echo '$'IPADDR$idx)
++        if [ -z "${ipaddr[$i]}" ]; then
++            [ "$idx" ] && [ $idx -ge 2 ] && break
++            continue
++        fi
++        prefix[$i]=$(eval echo '$'PREFIX$idx)
++        netmask[$i]=$(eval echo '$'NETMASK$idx)
++        broadcast[$i]=$(eval echo '$'BROADCAST$idx)
++        arpcheck[$i]=$(eval echo '$'ARPCHECK$idx)
++        arpupdate[$i]=$(eval echo '$'ARPUPDATE$idx)
++
++        if [ "${prefix[$i]}x" != "x" ]; then
++            val=$(/bin/ipcalc --netmask "${ipaddr[$i]}/${prefix[$i]}")
++            netmask[$i]=${val##NETMASK=}
++        fi
++
++        if [ "${netmask[$i]}x" = "x" ]; then
++            val=$(/bin/ipcalc --netmask "${ipaddr[$i]}")
++            netmask[$i]=${val##NETMASK=}
++        fi
++
++        if [ "${prefix[$i]}x" = "x" ]; then
++            val=$(/bin/ipcalc --prefix ${ipaddr[$i]} ${netmask[$i]})
++            prefix[$i]=${val##PREFIX=}
++        fi
++
++        if [ "${broadcast[$i]}x" = "x" ]; then
++            val=$(/bin/ipcalc --broadcast ${ipaddr[$i]} ${netmask[$i]})
++            broadcast[$i]=${val##BROADCAST=}
++        fi
++
++        if [ "${arpcheck[$i]}x" != "x" ]; then
++            arpcheck[$i]=${arpcheck[$i]##ARPCHECK=}
++            arpcheck[$i]=${arpcheck[$i],,*}
++        fi
++
++        if [ "${arpupdate[$i]}x" != "x" ]; then
++            arpupdate[$i]=${arpupdate[$i]##ARPUPDATE=}
++            arpupdate[$i]=${arpupdate[$i],,*}
++        fi
++
++        i=$((i+1))
++    done
++
++    [ -n "$DHCP_HOSTNAME" ] && DHCP_HOSTNAME=${DHCP_HOSTNAME%%.*}
++
++    if [ -z "${NETWORK}" ]; then
++        eval $(/bin/ipcalc --network ${ipaddr[0]} ${netmask[0]})
++    fi
++}
++
++toggle_value ()
++{
++    if [ "$2" = "yes"    -o "$2" = "YES" ] ; then
++        echo "$1 on"
++    elif [ "$2" = "no"    -o "$2" = "NO" ] ; then
++        echo "$1 off"
++    else
++        echo ''
++    fi
++}
++ 
++do_netreport ()
++{
++    # Notify programs that have requested notification
++    (
++        cd /var/run/netreport || exit
++        for i in * ; do
++            if [ -f $i ]; then
++                if [ "$(id -u)" = "0" ]; then
++                    OWNER=$(stat -c %U $i)
++                    su -s /bin/bash $OWNER -c "kill -SIGIO $i >/dev/null 2>&1 || rm -f $i >/dev/null 2>&1" > /dev/null 2>&1
++                else
++                    kill -SIGIO $i >/dev/null 2>&1 || rm -f $i >/dev/null 2>&1
++                fi
++            fi
++        done
++    )
++}
++
++is_nm_running ()
++{
++    dbus-send --system --print-reply \
++        --dest=org.freedesktop.DBus \
++        /org/freedesktop/DBus \
++        org.freedesktop.DBus.GetNameOwner \
++        string:"org.freedesktop.NetworkManager" >/dev/null 2>&1
++}
++
++is_nm_active ()
++{
++    LANG=C nmcli -t --fields device,state dev status 2>/dev/null | grep -q "^${1}:connected$"
++}
++
++is_nm_handling ()
++{
++    LANG=C nmcli -t --fields device,state dev status 2>/dev/null | grep -q "^\(${1}:connected\)\|\(${1}:connecting.*\)$"
++}
++
++is_nm_device_unmanaged ()
++{
++    LANG=C nmcli -t --fields GENERAL dev show "${1}" 2>/dev/null | awk -F ':' '/GENERAL.STATE/ { if ($2 == "unmanaged") exit 0 ; else exit 1; }'
++}
++
++# Sets $alias to the device module if $? != 0
++is_available ()
++{
++    [ -z "$1" ] && return 1
++
++    [ -d "/sys/class/net/$1" ] && return 0
++
++    [ -n "$BONDING_OPTS" ] && install_bonding_driver $1
++
++    alias=$(modprobe -c | awk \
++        'BEGIN { alias = ""; }
++        $1 == "alias" && $2 == "'"$1"'" { alias = $3; }
++        $1 == "install" { install[$2] = $3; }
++        END {
++            cmd = install[alias];
++            print alias;
++            if (alias == "" || alias == "off" || cmd == "/bin/true" || cmd == ":")
++                exit 1;
++            exit 0;
++        }
++    ')
++    [ $? -eq 0 ] || return 2
++
++    modprobe $1 > /dev/null 2>&1 || {
++        return 1
++    }
++    if [ -n "$HWADDR" ]; then
++        local curdev=$(get_device_by_hwaddr "$HWADDR")
++        if [ -z "$curdev" ]; then
++            return 1
++        fi
++    fi
++
++    if [ ${alias} = "bonding" ]; then
++        install_bonding_driver $1
++    fi
++
++    [ -d "/sys/class/net/$1" ] && return 0 || return 1
++}
++
++is_available_wait ()
++{
++    [ -z "$1" ] && return 1
++
++    local retry=${2##*[!0-9]*}
++
++    is_available $1 && return 0
++    ret=$?
++
++    while [ 0"$retry" -gt 0 ]; do
++        sleep 1
++        [ -d "/sys/class/net/$1" ] && return 0
++        retry=$(($retry -1))
++    done
++
++    return $ret
++}
++
++is_hostname_set ()
++{
++    case "${HOSTNAME}" in
++        '(none)' | 'localhost' | 'localhost.localdomain')
++            # Hostname NOT set:
++            return 1
++            ;;
++        *)
++            # Hostname IS set:
++            return 0
++            ;;
++    esac
++}
++
++need_hostname ()
++{
++    # Should we avoid obtaining hostname from DHCP? (user override)
++    is_true "${NO_DHCP_HOSTNAME}" && return 1
++
++    if is_hostname_set; then
++        # Hostname is already set, we do not need to acquire it:
++        return 1
++    else
++        # Hostname is NOT set, we need to acquire it:
++        return 0
++    fi
++}
++
++set_hostname_options ()
++{
++    # User explicitly requires to *not* send DHCP_HOSTNAME, DHCP_FQDN or HOSTNAME:
++    is_false "${DHCP_SEND_HOSTNAME}" && return
++
++    if [[ -n "${DHCP_HOSTNAME}" && -n "${DHCP_FQDN}" ]]; then
++        net_log $"Both 'DHCP_HOSTNAME=${DHCP_HOSTNAME}' and 'DHCP_FQDN=${DHCP_FQDN}' are configured... Using DHCP_FQDN." warning
++    fi
++
++    local hostname_options=''
++
++    # DHCP_FQDN takes precedence before DHCP_HOSTNAME -- as it does in NetworkManager,
++    # and DHCP_HOSTNAME takes precedence before HOSTNAME:
++    if [[ -n "${DHCP_FQDN}" ]]; then
++        hostname_options="-F ${DHCP_FQDN}"
++    elif [[ -n "${DHCP_HOSTNAME}" ]]; then
++        hostname_options="-H ${DHCP_HOSTNAME}"
++    elif is_hostname_set; then
++        # We need to truncate the hostname in case it is the FQDN:
++        hostname_options="-H ${HOSTNAME%%.*}"
++    else
++        # Nothing to send to the DHCP server:
++        # ['(none)', 'localhost' or 'localhost.localdomain' are not valid]
++        return
++    fi
++
++    # Append the hostname options to the content of passed variable name:
++    eval "$1='${!1} ${hostname_options}'"
++
++    return
++}
++
++set_hostname ()
++{
++    hostname $1
++    if ! grep search /etc/resolv.conf >/dev/null 2>&1; then
++        domain=$(echo $1 | sed 's/^[^\.]*\.//')
++        if [ -n "$domain" ]; then
++            rsctmp=$(mktemp /tmp/XXXXXX);
++            cat /etc/resolv.conf > $rsctmp
++            echo "search $domain" >> $rsctmp
++            change_resolv_conf $rsctmp
++            /bin/rm -f $rsctmp
++        fi    
++    fi
++}
++
++check_device_down ()
++{
++    [ ! -d /sys/class/net/$1 ] && return 0
++    if LC_ALL=C ip -o link show dev $1 2>/dev/null | grep -q ",UP" ; then
++        return 1
++    else
++        return 0
++    fi
++}
++
++check_link_down ()
++{
++    if ! LC_ALL=C ip link show dev $1 2>/dev/null| grep -q ",UP" ; then
++        ip link set dev $1 up >/dev/null 2>&1
++    fi
++    timeout=0
++    delay=10
++    [ -n "$LINKDELAY" ] && delay=$(($LINKDELAY * 2))
++    while [ $timeout -le $delay ]; do
++        [ "$(cat /sys/class/net/$REALDEVICE/carrier 2>/dev/null)" != "0" ] && return 1
++        sleep 0.5
++        timeout=$((timeout+1))
++    done
++    return 0
++}
++
++check_default_route ()
++{
++    LC_ALL=C ip route list match 0.0.0.0/0 | grep -q default
++}
++
++find_gateway_dev ()
++{
++    . /etc/sysconfig/network
++    if [ -n "${GATEWAY}" -a "${GATEWAY}" != "none" ] ; then
++        dev=$(LC_ALL=C /sbin/ip route get to "${GATEWAY}" 2>/dev/null | \
++        sed -n 's/.* dev \([[:alnum:]]*\) .*/\1/p')
++        if [ -n "$dev" ]; then
++            GATEWAYDEV="$dev"
++        fi
++    fi
++}
++
++# After the device $1 goes away, restore the standard default route; typically
++# used for ppp with DEFROUTE temporarily replacing the "standard" default
++# route.
++# FIXME: This function doesn't support some newer features (GATEWAY in ifcfg,
++# $WINDOW, $METRIC)
++add_default_route ()
++{
++    . /etc/sysconfig/network
++    check_default_route && return 0
++    find_gateway_dev
++    if [ "$GATEWAYDEV" != "" -a -n "${GATEWAY}" -a \
++             "${GATEWAY}" != "none" ]; then
++        if ! check_device_down $1; then
++            if [ "$GATEWAY" = "0.0.0.0" ]; then
++                /sbin/ip route add default dev ${GATEWAYDEV}
++            else
++                /sbin/ip route add default via ${GATEWAY}
++            fi
++        fi
++    elif [ -f /etc/default-routes ]; then
++        while read spec; do
++            /sbin/ip route add $spec
++        done < /etc/default-routes
++        rm -f /etc/default-routes
++    fi
++}
++
++is_wireless_device ()
++{
++    [ -x /usr/sbin/iw ] || return 1
++    LC_ALL=C /usr/sbin/iw dev $1 info > /dev/null 2>&1 && return 0
++    return 1
++}
++
++phy_wireless_device ()
++{
++    cat /sys/class/net/$1/phy80211/name
++}
++
++bond_master_exists ()
++{
++    local bond_name
++    [ -z "${1}" ] && return 1
++    [ ! -f /sys/class/net/bonding_masters ] && return 1
++
++    for bond_name in $(< /sys/class/net/bonding_masters); do
++        [ "${bond_name}" == "${1}" ] && return 0
++    done
++    return 1
++}
++
++install_bonding_driver ()
++{
++    local fn="install_bonding_driver"
++
++    if ! bond_master_exists ${1}; then
++        modprobe bonding || return 1
++        echo "+$1" > /sys/class/net/bonding_masters 2>/dev/null
++    fi
++    (
++        # Set config here
++        need_config "$1"
++        source_config
++        if [ -f /sys/class/net/${DEVICE}/bonding/slaves ] && [ $(wc -l < /sys/class/net/${DEVICE}/bonding/slaves) -eq 0 ]; then
++            /sbin/ip link set dev ${DEVICE} down
++
++            # parse options and put them to arrays
++            for arg in $BONDING_OPTS ; do
++                bopts_keys[${#bopts_keys[*]}]=${arg%%=*}
++                bopts_vals[${#bopts_vals[*]}]=${arg##*=}
++            done
++
++            # add the bits to setup driver parameters here
++            # first set mode, miimon
++            for (( idx=0; idx < ${#bopts_keys[*]}; idx++ )) ; do
++                key=${bopts_keys[$idx]}
++                value=${bopts_vals[$idx]}
++
++                if [ "${key}" = "mode" ] ; then
++                    echo "${value}" > /sys/class/net/${DEVICE}/bonding/$key || {
++                        net_log $"Failed to set value '$value' [mode] to ${DEVICE} bonding device" err $fn
++                    }
++                    bopts_keys[$idx]=""
++                fi
++                if [ "${key}" = "miimon" ] ; then
++                    echo "${value}" > /sys/class/net/${DEVICE}/bonding/$key || {
++                        net_log $"Failed to set value '$value' [miimon] to ${DEVICE} bonding device" err $fn
++                    }
++                    bopts_keys[$idx]=""
++                fi
++            done
++
++            # set all other remaining options
++            for (( idx=0; idx < ${#bopts_keys[*]}; idx++ )) ; do
++                key=${bopts_keys[$idx]}
++                value=${bopts_vals[$idx]}
++
++                # option already set; take next
++                [[ -z "$key" ]] && continue
++
++                if [ "${key}" = "arp_ip_target" -a "${value:0:1}" != "+" ]; then
++                    OLDIFS=$IFS;
++                    IFS=',';
++                    for arp_ip in $value; do
++                        if ! grep -q $arp_ip /sys/class/net/${DEVICE}/bonding/$key; then
++                            echo +$arp_ip > /sys/class/net/${DEVICE}/bonding/$key || {
++                                net_log $"Failed to set '$arp_ip' value [arp_ip_target] to ${DEVICE} bonding device" err $fn
++                            }
++                        fi
++                    done
++                    IFS=$OLDIFS;
++                elif [ "${key}" = "arp_ip_target" ]; then
++                    if ! grep -q ${value#+} /sys/class/net/${DEVICE}/bonding/$key; then
++                        echo "$value" > /sys/class/net/${DEVICE}/bonding/$key || {
++                            net_log $"Failed to set '$value' value [arp_ip_target] to ${DEVICE} bonding device" err $fn
++                        }
++                    fi
++                elif [ "${key}" != "primary" ]; then
++                    echo $value > /sys/class/net/${DEVICE}/bonding/$key || {
++                        net_log $"Failed to set '$value' value [$key] to ${DEVICE} bonding device" err $fn
++                    }
++                fi
++            done
++        fi
++    )
++    return 0
++}
++
++is_bonding_device ()
++{
++    [ -f "/sys/class/net/$1/bonding/slaves" ]
++}
++
++# Invoke this when /etc/resolv.conf has changed:
++change_resolv_conf ()
++{
++    s=$(/bin/grep '^[\ \       ]*option' /etc/resolv.conf 2>/dev/null)
++    if [ $# -gt 1 ]; then
++        if [ "x$s" != "x" ]; then
++            s="$s"$'\n'
++        fi
++        n_args=$#
++        while [ $n_args -gt 0 ]; do 
++            case "$s" in
++            *$1*)
++                shift
++                n_args=$(($n_args-1))
++                continue
++                ;;
++            esac
++            s="$s$1"
++            shift
++            if [ $# -gt 0 ]; then
++                s="$s"$'\n'
++            fi
++            n_args=$(($n_args-1))
++        done             
++    elif [ $# -eq 1 ]; then
++        if [ "x$s" != "x" ]; then
++            s="$s"$'\n'$(/bin/grep -vF "$s" $1)
++        else
++            s=$(cat $1)
++        fi
++    fi
++    (echo "$s" > /etc/resolv.conf) >/dev/null 2>&1;
++    r=$?
++    if [ $r -eq 0 ]; then
++        [ -x /sbin/restorecon ] && /sbin/restorecon /etc/resolv.conf >/dev/null 2>&1 # reset the correct context
++        /usr/bin/logger -p local7.notice -t "NET" -i "$0 : updated /etc/resolv.conf"
++        [ -e /var/run/nscd/socket ] && /usr/sbin/nscd -i hosts # invalidate cache
++    fi
++    return $r
++}
++
++# Logging function
++#
++# Usage: net_log <message> <err|warning|info> <optional file/function name>
++#
++# Default level is 'err'.
++
++net_log()
++{
++    local message="$1"
++    local level="$2"
++    local name="$3"
++
++    [ -z "$message" ] && return 1
++    [ -z "$level" ] && level=err
++    [ -z "$name" ] && name=$0
++
++    case $level in
++    'debug')
++        local txt_level=$"DEBUG     "
++        ;;
++    'err')
++        local txt_level=$"ERROR     "
++        ;;
++    'warning')
++        local txt_level=$"WARN      "
++        ;;
++    'info')
++        local txt_level=$"INFO      "
++        ;;
++    esac
++
++    echo "$txt_level: [$name] $message"
++
++    if [ -x /usr/bin/logger ]; then
++        /usr/bin/logger -p daemon.$level -t "$name" "$message"
++    fi
++    return 0
++}
++
++update_DNS_entries()
++{
++    # Remove duplicate values from DNS options if any:
++    if [ -n "${DNS3}" ] && [[ "${DNS3}" == "${DNS2}" || "${DNS3}" == "${DNS1}" ]]; then
++        unset DNS3
++    fi
++
++    if [ -n "${DNS2}" ] && [[ "${DNS2}" == "${DNS1}" ]]; then
++        unset DNS2
++    fi
++
++    # Shift the DNS options if necessary:
++    if [ -z "${DNS1}" ] && [ -n "${DNS2}" ]; then
++        DNS1="${DNS2}"
++        unset DNS2
++    fi
++
++    if [ -z "${DNS2}" ] && [ -n "${DNS3}" ]; then
++        DNS2="${DNS3}"
++        unset DNS3
++    fi
++
++    # We need to check DNS1 again in case only DNS3 was set at all:
++    if [ -z "${DNS1}" ] && [ -n "${DNS2}" ]; then
++        DNS1="${DNS2}"
++        unset DNS2
++    fi
++}
+diff -Naur mpss-modules-3.8.6/udev-mic.rules mpss-modules-3.8.6.el8/udev-mic.rules
+--- mpss-modules-3.8.6/udev-mic.rules	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/udev-mic.rules	2021-02-08 09:52:08.572205776 +0100
+@@ -5,5 +5,6 @@
+ KERNEL=="scif", ACTION=="add", NAME="mic/%k",MODE="0666", RUN+="/bin/chmod og+x /dev/mic"
+ KERNEL=="ctrl", ACTION=="add", NAME="mic/%k", MODE="0666"
+ 
+-# Bring up network interfaces manually on rhel7 after module reload
+-KERNEL=="mic*", SUBSYSTEM=="net", RUN+="/bin/sh -c '/bin/grep 7. /etc/redhat-release && /sbin/ifup %k'"
++# Bring up network interfaces manually on rhel8 after module reload
++KERNEL=="mic*", SUBSYSTEM=="net", RUN+="/etc/mpss/network-scripts/ifup %k"
++
+diff -Naur mpss-modules-3.8.6/vnet/micveth_dma.c mpss-modules-3.8.6.el8/vnet/micveth_dma.c
+--- mpss-modules-3.8.6/vnet/micveth_dma.c	2019-07-01 22:45:06.000000000 +0200
++++ mpss-modules-3.8.6.el8/vnet/micveth_dma.c	2021-02-08 09:52:08.573205703 +0100
+@@ -910,7 +910,12 @@
+ 	.ndo_set_multicast_list = micvnet_multicast_list,
+ #endif
+ 	.ndo_set_mac_address	= micvnet_set_address,
+-	.ndo_change_mtu		= micvnet_change_mtu,
++#if LINUX_VERSION_CODE <= KERNEL_VERSION(3,10,0)
++	.ndo_change_mtu_rh74	= micvnet_change_mtu,
++#else
++	.ndo_change_mtu			= micvnet_change_mtu,
++#endif
++
+ };
+ 
+ static void
+@@ -920,7 +925,11 @@
+ 
+ 	/* Initialize the device structure. */
+ 	dev->netdev_ops = &micvnet_netdev_ops;
++#if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
++    dev->priv_destructor = free_netdev;
++#else
+ 	dev->destructor = free_netdev;
++#endif
+ 
+ 	/* Fill in device structure with ethernet-generic values. */
+ 	dev->mtu = MICVNET_MAX_MTU;

@@ -1,0 +1,130 @@
+diff -Naur mpss-daemon-4.4.1/libmpssconfig/libmpsscommon.h mpss-daemon-4.4.1.el8/libmpssconfig/libmpsscommon.h
+--- mpss-daemon-4.4.1/libmpssconfig/libmpsscommon.h	2016-12-22 15:16:00.000000000 +0100
++++ mpss-daemon-4.4.1.el8/libmpssconfig/libmpsscommon.h	2021-07-01 17:36:27.663943783 +0200
+@@ -18,9 +18,10 @@
+ #include <sys/types.h>
+ #include <string>
+ 
+-#pragma GCC diagnostic warning "-fpermissive"
++extern "C" {
+ #include <mic_common.h>
+-#pragma GCC diagnostic error "-fpermissive"
++}
++
+ 
+ #ifndef MPSS_EXPORT
+ #define MPSS_EXPORT __attribute__((visibility("default")))
+diff -Naur mpss-daemon-4.4.1/libmpssconfig/mpssconfig.c mpss-daemon-4.4.1.el8/libmpssconfig/mpssconfig.c
+--- mpss-daemon-4.4.1/libmpssconfig/mpssconfig.c	2016-12-06 13:00:10.000000000 +0100
++++ mpss-daemon-4.4.1.el8/libmpssconfig/mpssconfig.c	2021-07-07 10:43:00.167856213 +0200
+@@ -16,8 +16,6 @@
+ 
+ #include <algorithm>
+ #include <arpa/inet.h>
+-#include <boost/algorithm/string.hpp>
+-#include <boost/regex.hpp>
+ #include <dirent.h>
+ #include <errno.h>
+ #include <fcntl.h>
+@@ -34,6 +32,10 @@
+ #include <sys/stat.h>
+ #include <unistd.h>
+ #include <vector>
++#include <boost/algorithm/string/classification.hpp>
++#include <boost/algorithm/string/split.hpp>
++#include <boost/algorithm/string/trim.hpp>
++#include <boost/regex.hpp>
+ 
+ #define MIC_MODULES_LOAD "modprobe -a mic_x200_dma scif_bus vop_bus cosm_bus scif vop mic_cosm mic_x200"
+ #define MIC_MODULES_UNLOAD "modprobe -r mic_cosm scif vop mic_x200 mic_x200_dma vop_bus scif_bus cosm_bus"
+@@ -970,6 +972,8 @@
+ {
+ 	struct mic_info miclist;
+ 	struct mic_info *mic = &miclist;
++    struct mic_info *firstmic = mic, *tmp;
++    int id = 0; 
+ 	struct dirent *file;
+ 	DIR *dp;
+ 
+@@ -983,15 +987,34 @@
+ 		if (strncmp(file->d_name, "mic", 3))
+ 			continue;
+ 
+-		mic->next = new mic_info;
++        if (sscanf(file->d_name, "mic%d", &id) <= 0)
++            continue;
+ 
+-		mic = mic->next;
+-		mic->id = atoi(&file->d_name[3]);
+-		mic->present = TRUE;
+-		mic->name = file->d_name;
+-		mic->config.name = mpssut_configname(mic->name);
+-		mpss_clear_config(&mic->config);
+-		(*cnt)++;
++        /* list of micN devices may be out of order; find the correct spot to insert it */
++        mic = firstmic;
++        while (mic->id < id && mic->next && mic->next->id < id) {
++            mic = mic->next;
++        }
++
++        tmp = new mic_info;
++        /* two possibilities: 
++           - First element of linked list needs a bump
++           - we need to squeeze ourselves in 
++        */
++        if (mic->id > id) {
++            tmp->next = mic; 
++            firstmic = tmp; 
++        } else {
++            tmp->next = mic->next;
++            mic->next = tmp;
++        }
++        mic = tmp;
++        mic->id = id;
++        mic->present = TRUE;
++        mic->name = file->d_name;
++        mic->config.name = mpssut_configname(mic->name);
++        mpss_clear_config(&mic->config);
++        (*cnt)++;
+ 	}
+ 
+ 	closedir(dp);
+diff -Naur mpss-daemon-4.4.1/mpssd/virtio.cpp mpss-daemon-4.4.1.el8/mpssd/virtio.cpp
+--- mpss-daemon-4.4.1/mpssd/virtio.cpp	2017-03-21 15:25:08.000000000 +0100
++++ mpss-daemon-4.4.1.el8/mpssd/virtio.cpp	2021-07-01 17:36:27.664943710 +0200
+@@ -28,6 +28,7 @@
+ #include <sys/mman.h>
+ #include <sys/stat.h>
+ #include <sys/wait.h>
++#include <sys/uio.h>
+ #include <sys/unistd.h>
+ 
+ extern "C" unsigned int if_nametoindex (const char *ifname);
+@@ -382,7 +383,8 @@
+ 	case VIRTIO_ID_NET:
+ 		return mpssdi->mic_net.net_dp;
+ 	case VIRTIO_ID_BLOCK:
+-		return mpssdi->mic_virtblk[idx].block_dp;
++        /* add extra if() check to keep centos 8 C++ happy */
++		if (idx >= 0) return mpssdi->mic_virtblk[idx].block_dp;
+ 	}
+ 	mpssd_log(PERROR, "%d not found", type);
+ 	assert(0);
+diff -Naur mpss-daemon-4.4.1/mpssd/virtio.h mpss-daemon-4.4.1.el8/mpssd/virtio.h
+--- mpss-daemon-4.4.1/mpssd/virtio.h	2016-10-10 10:03:06.000000000 +0200
++++ mpss-daemon-4.4.1.el8/mpssd/virtio.h	2021-07-01 17:36:27.664943710 +0200
+@@ -20,14 +20,12 @@
+  * This is done for compilation of inline function in included files which
+  * are not compatible with C++, using C++ keywords and pointer conversions
+  */
+-#pragma GCC diagnostic warning "-fpermissive"
+ #define class class_
+ #include <mic_common.h>
+ #include <linux/virtio_blk.h>
+ #include <linux/virtio_net.h>
+ #include <linux/virtio_console.h>
+ #undef class
+-#pragma GCC diagnostic error "-fpermissive"
+ 
+ #include <thread>
+ #include <vector>
