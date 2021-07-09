@@ -54,6 +54,11 @@
 #include <linux/io.h>
 #include <linux/errno.h>
 
+#include <linux/version.h>
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
+#endif
+
 #include "scif_rb.h"
 
 static inline u32 scif_rb_ring_cnt(u32 head, u32 tail, u32 size)

@@ -168,7 +168,11 @@ vop_register_device(struct device *pdev, int id,
 	vdev->dev.parent = pdev;
 	vdev->id.device = id;
 	vdev->id.vendor = VOP_DEV_ANY_ID;
+#if RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7, 3)
 	vdev->dev.archdata.dma_ops = dma_ops;
+#else
+	vdev->dev.dma_ops = dma_ops;
+#endif
 	vdev->dev.dma_mask = &vdev->dev.coherent_dma_mask;
 	dma_set_mask(&vdev->dev, *pdev->dma_mask);
 	vdev->dev.release = vop_release_dev;

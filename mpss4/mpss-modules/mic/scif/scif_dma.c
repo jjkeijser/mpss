@@ -207,6 +207,7 @@ static void scif_mmu_notifier_release(struct mmu_notifier *mn,
 	schedule_work(&scif_info.misc_work);
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
 static void scif_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
 					      struct mm_struct *mm,
 					      unsigned long address)
@@ -216,6 +217,7 @@ static void scif_mmu_notifier_invalidate_page(struct mmu_notifier *mn,
 	mmn = container_of(mn, struct scif_mmu_notif, ep_mmu_notifier);
 	scif_rma_destroy_tcw(mmn, address, PAGE_SIZE);
 }
+#endif
 
 static void scif_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 						     struct mm_struct *mm,
@@ -242,7 +244,14 @@ static void scif_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 static const struct mmu_notifier_ops scif_mmu_notifier_ops = {
 	.release = scif_mmu_notifier_release,
 	.clear_flush_young = NULL,
-	.invalidate_page = scif_mmu_notifier_invalidate_page,
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,14,0)
+    .invalidate_page = scif_mmu_notifier_invalidate_page,
+#else
+    /* Kernel 4.13+ no longer has invalidate_page; set all other struct memember explicitly */
+    .clear_young = NULL,
+    .test_young = NULL,
+    .invalidate_range = NULL,
+#endif
 	.invalidate_range_start = scif_mmu_notifier_invalidate_range_start,
 	.invalidate_range_end = scif_mmu_notifier_invalidate_range_end};
 

@@ -50,6 +50,7 @@
  * Intel SCIF driver.
  */
 #include <linux/pagemap.h>
+#include <linux/sched/signal.h>
 #ifdef MIC_IN_KERNEL_BUILD
 #include <linux/scif.h>
 #else

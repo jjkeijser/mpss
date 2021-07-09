@@ -176,7 +176,11 @@ scif_register_device(struct device *pdev, int id, struct dma_map_ops *dma_ops,
 	sdev->dev.parent = pdev;
 	sdev->id.device = id;
 	sdev->id.vendor = SCIF_DEV_ANY_ID;
+#if RHEL_RELEASE_CODE <= RHEL_RELEASE_VERSION(7, 3)
 	sdev->dev.archdata.dma_ops = dma_ops;
+#else
+	sdev->dev.dma_ops = dma_ops;
+#endif
 	sdev->dev.release = scif_release_dev;
 	sdev->hw_ops = hw_ops;
 	sdev->dnode = dnode;

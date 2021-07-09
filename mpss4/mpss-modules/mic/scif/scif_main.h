@@ -76,6 +76,10 @@
 #define LEGACY_IOVA
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4,14,0)
+#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
+#endif
+
 #include "../common/mic_dev.h"
 
 #define SCIF_MGMT_NODE 0

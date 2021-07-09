@@ -17,9 +17,17 @@
 #define __MIC_DEV_H__
 
 #include <linux/types.h>
-#include <linux/dma_remapping.h>
-#include <linux/dma-mapping.h>
 #include <linux/version.h>
+#if RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3)
+#include <linux/intel-iommu.h>
+#else
+#include <linux/dma_remapping.h>
+#endif
+#include <linux/dma-mapping.h>
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
+#define ACCESS_ONCE(x) (*(volatile typeof(x) *)&(x))
+#endif
 
 /* The maximum number of MIC devices supported in a single host system. */
 #define MIC_MAX_NUM_DEVS 128
@@ -28,6 +36,7 @@
  * mic_intr_source - The type of source that will generate
  * the interrupt.The number of types needs to be in sync with
  * MIC_NUM_INTR_TYPES
+
  *
  * MIC_INTR_DB: The source is a doorbell
  * MIC_INTR_DMA: The source is a DMA channel
@@ -93,7 +102,7 @@ struct mic_mw {
 	#define IOMMU_SUPPORTS_KNL
 #endif
 
-#if defined(RHEL_RELEASE_VERSION)
+#if RHEL_RELEASE_CODE < RHEL_RELEASE_VERSION(8, 0)
 	#define DMA_ALIAS_MEMBER pci_dev_rh->dma_alias_mask
 #else
 	#define DMA_ALIAS_MEMBER dma_alias_mask

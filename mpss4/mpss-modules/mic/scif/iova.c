@@ -33,7 +33,7 @@ void free_iova_mem(struct iova *iova)
 
 #ifndef LEGACY_IOVA
 void init_iova_domain(struct iova_domain *iovad, unsigned long granule,
-	unsigned long start_pfn, unsigned long pfn_32bit)
+	unsigned long pfn_32bit)
 #else
 void
 init_iova_domain(struct iova_domain *iovad, unsigned long pfn_32bit)

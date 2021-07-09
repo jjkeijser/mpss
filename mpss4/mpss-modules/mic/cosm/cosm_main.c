@@ -763,7 +763,7 @@ static int cosm_driver_probe(struct cosm_device *cdev)
 		goto device_exit;
 	}
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) || RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3))
 	cdev->sysfs_node = sysfs_get_dirent(cdev->sysfs_dev->kobj.sd, "state");
 #else
 	cdev->sysfs_node = sysfs_get_dirent(cdev->sysfs_dev->kobj.sd,

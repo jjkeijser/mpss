@@ -250,9 +250,9 @@ static void dmi_save_oem_strings(struct mic_device *xdev,
 		if (oem_len + len + 1 > PAGE_SIZE)
 			break;
 
-		strncat(s, oemname, oem_len);
+		strcat(s, oemname);
+		strcat(s, " ");
 		len += oem_len + 1;
-		strncat(s, " ", 1);
 	}
 	dinfo->sysfs_entry[MIC_DMI_OEM_STRINGS] = s;
 }

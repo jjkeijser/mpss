@@ -15,6 +15,7 @@
  */
 
 #include <linux/kthread.h>
+#include <linux/sched/signal.h>
 #include "cosm_main.h"
 
 /*

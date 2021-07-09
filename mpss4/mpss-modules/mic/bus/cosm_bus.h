@@ -92,7 +92,7 @@ struct cosm_device {
 
 	const struct attribute_group **sysfs_attr_group;
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0) || RHEL_RELEASE_CODE > RHEL_RELEASE_VERSION(7, 3))
 	struct kernfs_node *sysfs_node;
 #else
 	struct sysfs_dirent *sysfs_node;
