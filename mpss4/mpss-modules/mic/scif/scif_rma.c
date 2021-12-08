@@ -35,6 +35,16 @@
 #define IOVA_START_PFN         (1)
 #endif
 
+#ifdef RHEL_RELEASE_VERSION
+#if RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(8, 5)
+
+static inline struct iova *alloc_iova_mem(void)
+{
+    return NULL;
+}
+#endif
+#endif
+
 static bool scif_ulimit_check = true;
 
 module_param(scif_ulimit_check, bool, S_IRUSR | S_IRGRP | S_IROTH);
