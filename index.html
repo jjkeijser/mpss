@@ -1,0 +1,93 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <meta name="keywords" content="intel knc mpss">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+  <title>Intel Xeon Phi (KNC) MPSS software and kernel modules for CentOS 7&amp;8</title>
+
+  <link rel="stylesheet" href="mw-monobook-lookalike.css">
+</head>
+
+
+<body>
+
+<h1>Intel Xeon Phi (KNC) MPSS software and kernel modules for CentOS 7&amp;8</h1>
+
+The Intel Xeon Phi 0x100 (KNC) PCI-e accelerator card is/was a many-processor card
+to speed up calculations. The idea is similar to that of a GPGPU like NVidia or AMD,
+but based on many Intel cores stuffed into a single PCI-e card, together with a
+fair amount of RAM (up to 16 GB, depending on the model).
+<br><br>
+In order to access the card, you have to install and run the Intel MPSS software stack,
+which consists of a Linux kernel module (or Windows, but that is not applicable here),
+combined with a set of user-space applications.
+<br><br>
+Unfortunately, Intel dropped support for this Xeon Phi card somewhere in 2019, 
+leaving users stranded with a software stack that supported (amongst others) RedHat
+Enterprise Linux 7 up to release 7.4 (kernel 3.10.0-693).
+<br>
+The latest version (as of October 4th 2019) of the MPSS software stack for the
+first generation Intel Xeon Phi (aka KNC) is 3.8.6. Unfortunately, this version
+of the mpss stack does not support the newer RHEL/CentOS 7 kernels nor does it 
+support RHEL/CentOS 8 at all.
+<br><br>
+Even though Intel released version 3.8.5 well after RHEL 7.5 and 7.6 were released,
+and similarly, released version 3.8.6 after RHEL 7.7 was released, 
+they state that this newer release only addresses critical customer issues and 
+security hotfixes.  Apparently, they find it important to address security issues
+in the MPSS stack and the KNC itself, but they do not care about security issues
+(SPECTRE anyone?) in the host operating system.
+
+<br><br>
+In order to continue to be able to use the few Xeon Phi's that I have, I have created
+patches for the mpss-modules source files, so that it can be compiled on newer RedHat/
+CentOS Linux kernels, including
+<ul>
+  <li>CentOS 7.5 (kernel 3.10.0-862)</li>
+  <li>CentOS 7.6 (kernel 3.10.0-957)</li>
+  <li>CentOS 7.7 (kernel 3.10.0-1062)</li>
+  <li>CentOS 7.8 (kernel 3.10.0-1127)</li>
+  <li>CentOS 7.9 (kernel 3.10.0-1160)</li>
+<br>
+  <li>CentOS 8.2 (kernel 4.18.0-193)</li>
+  <li>CentOS 8.3 (kernel 4.18.0-240)</li>
+  <li>CentOS 8.4 (kernel 4.18.0-305.3.1)</li>
+  <li>CentOS 8.5 (kernel 4.18.0-348.2.1)</li>
+</ul>
+
+Note that the mpss-modules source tarballs from Intel for MPSS 3.8.4, 3.8.5 and 3.8.6 seem different, but 
+a <code>diff -r</code> on the source trees resulted in <b>zero</b> difference. Thus, if you are stuck
+running an older version of the MPSS software stack then you can apply the same patches.
+
+<br><br>
+You can find these patches on the following pages, as well as an outline of how to get
+the MPSS software stack running on Ubuntu 18 (kernel 4.15).
+
+<ul>
+  <li><a href="xeon-phi-mpss-centos7.html">MPSS kernel module patches for CentOS 7</a>
+  </li>
+  <li><a href="xeon-phi-mpss-centos8.html">MPSS kernel module patches for CentOS 8</a>
+  </li>
+  <li><a href="xeon-phi-mpss-ubuntu.html">Running the MPSS software stack on Ubuntu 18</a>
+  </li>
+</ul>
+
+<h2>Github</h2>
+This page is kept for legacy purposes and for linking to the github page for my MPSS stuff:
+<ul>
+  <li><a href="https://github.com/jjkeijser/mpss">https://github.com/jjkeijser/mpss</a>
+  </li>
+</ul>
+which has the code, patches, RPM specfiles and build instructions for the MPSS 3 <b>and</b> MPSS 4
+stacks on CentOS 7 <b>and</b> 8.
+
+
+<hr>
+<small>MPSS main |
+       <a href="xeon-phi-mpss-centos7.html">MPSS CentOS 7</a> |
+       <a href="xeon-phi-mpss-centos8.html">MPSS CentOS 8</a> |
+       <a href="xeon-phi-mpss-ubuntu.html">MPSS Ubuntu</a>
+</small>
+</body>
+</html>

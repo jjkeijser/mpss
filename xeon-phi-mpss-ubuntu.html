@@ -1,0 +1,61 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <meta name="keywords" content="intel knc mpss">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+  <title>Running the MPSS software stack on Ubuntu 18</title>
+
+  <link rel="stylesheet" href="mw-monobook-lookalike.css">
+</head>
+
+
+<body>
+
+<h1>Running the MPSS software stack on Ubuntu 18</h1>
+
+This is a short page to outline how to run the MPSS software stack on Ubuntu 18
+using its default 4.15 kernel:
+
+<ul>
+  <li>Convert the mpss-3.8.6 RPMs to .deb packages and install them.
+  </li>
+  <li>Unpack the <code>mpss-modules-3.8.6.tar.bz2</code> tarball and apply 
+      <a href="mpss-modules-4.15.patch">this patch</a>.
+  </li>
+  <li>Build the kernel module using
+<pre>
+  make MIC_CARD_ARCH=k1om KERNEL_VERSION=4.15.0-122-generic prefix=/usr sysconfdir=/etc
+</pre>
+      This resulted in a <code>mic.ko</code> kernel module when I tried it.
+  </li>
+  <li>Try inserting the module manually, then check the status before starting the mpss daemon:
+<pre>
+  # insmod ./mic.ko
+  # (check dmesg)
+  # micctrl -s
+  # /usr/sbin/mpssd
+</pre>
+  </li>
+  <li>I am sure there will be some issues in bringing up the <code>mic0</code> network interface,
+      but this should work
+<pre>
+  # ifconfig mic0 172.31.1.254 netmask 255.255.255.0 mtu 64512 up
+</pre>
+  </li>
+  <li>Try booting the card
+<pre>
+  # micctrl -b
+</pre>
+   and watch <code>/var/log/syslog</code> and/or <code>/var/log/kern.log</code> for output.
+  </li>
+</ul>
+
+<hr>
+<small><a href="index.html">MPSS main</a> |
+       <a href="xeon-phi-mpss-centos7.html">MPSS CentOS 7</a> |
+       <a href="xeon-phi-mpss-centos8.html">MPSS CentOS 8</a> |
+       MPSS Ubuntu
+</small>
+</body>
+</html>

@@ -1,0 +1,15 @@
+pre {
+  border:            1pt dashed #2f6fab;
+  white-space:       pre;
+  overflow:          auto;
+  font-size:         11pt;
+  padding:           1em 0;
+  background:        white;
+  background-color:  #f9f9f9;
+  color:             black;
+}
+
+code {
+  background-color:  #f9f9f9;
+}
+

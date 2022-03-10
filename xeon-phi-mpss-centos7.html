@@ -1,0 +1,136 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+<head>
+  <meta name="keywords" content="intel knc mpss">
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+  <title>Intel Xeon Phi (KNC) MPSS modules for CentOS 7.5-7.9</title>
+
+  <link rel="stylesheet" href="mw-monobook-lookalike.css">
+</head>
+
+
+<body>
+
+<h1>Intel Xeon Phi (KNC) MPSS modules for CentOS 7.5, 7.6, 7.7, 7.8 and 7.9</h1>
+
+The latest version (as of October 4th 2019) of the MPSS software stack for the
+first generation Intel Xeon Phi (aka KNC) is 3.8.6. Unfortunately, this version
+of the mpss stack does not support the newer RHEL/CentOS 7 kernels <b>3.10.0-862</b>
+(7.5), <b>3.10.0-957</b> (7.6), <b>3.10.0-1062</b> (7.7), <b>3.10.0-1127</b> (7.8)
+and <b>3.10.0-1160</b> (7.9).
+<br><br>
+Therefore, I've grabbed the mpss-modules source tarball and patched it, so that it can
+be compiled for a 3.10.0-862, 3.10.0-957, 3.10.0-1062, 3.10.0-1127 or 3.10.0-1160 kernel.
+The resulting RPM and Source RPM (SRPM) can be download here, both for MPSS 3.8.6 and the 
+previous 3.8.5 release. The same patch is used for the 3.10.0-862 and 3.10.0-957 kernels,
+but for the 3.10.0-1062 patch, the file <code>micscif/micscif_select.c</code> needed a small
+patch.  For the 3.10.0-1127+ patch, the file <code>host/vmcore.c</code> was patched to work
+around an overlapping function name.
+
+<h2>MPSS 3.8.6 on CentOS 7.9</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-1160.el7.x86_64-3.8.6-4.x86_64.rpm">mpss-modules-3.10.0-1160.el7.x86_64-3.8.6-4.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-1160.el7.x86_64-3.8.6-4.x86_64.rpm">mpss-modules-dev-3.10.0-1160.el7.x86_64-3.8.6-4.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.6-4.el7_9.src.rpm">mpss-modules-3.8.6-4.el7_9.src.rpm</a>
+  </li>
+</ul>
+  Note that this RPM is much small than its predecessors due to the addition of a line
+<pre>
+  strip --strip-unneeded mic.ko
+</pre>
+  to the <code>mpps-modules-3.8.6-centos79.spec</code> file.
+
+<h2>MPSS 3.8.6 on CentOS 7.8</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-1127.el7.x86_64-3.8.6-2.x86_64.rpm">mpss-modules-3.10.0-1127.el7.x86_64-3.8.6-2.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-1127.el7.x86_64-3.8.6-2.x86_64.rpm">mpss-modules-dev-3.10.0-1127.el7.x86_64-3.8.6-2.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.6-2.src.rpm">mpss-modules-3.8.6-2.src.rpm</a>
+  </li>
+</ul>
+
+<h2>MPSS 3.8.6 on CentOS 7.7</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-1062.el7.x86_64-3.8.6-1.x86_64.rpm">mpss-modules-3.10.0-1062.el7.x86_64-3.8.6-1.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-1062.el7.x86_64-3.8.6-1.x86_64.rpm">mpss-modules-dev-3.10.0-1062.el7.x86_64-3.8.6-1.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.6-1.src.rpm">mpss-modules-3.8.6-1.src.rpm</a>
+  </li>
+</ul>
+
+<h2>MPSS 3.8.5 on CentOS 7.7</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-1062.el7.x86_64-3.8.5-2.x86_64.rpm">mpss-modules-3.10.0-1062.el7.x86_64-3.8.5-2.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-1062.el7.x86_64-3.8.5-2.x86_64.rpm">mpss-modules-dev-3.10.0-1062.el7.x86_64-3.8.5-2.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.5-1.src.rpm">mpss-modules-3.8.5-2.src.rpm</a>
+  </li>
+</ul>
+
+<h2>MPSS 3.8.5 on CentOS 7.6</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-957.el7.x86_64-3.8.5-1.x86_64.rpm">mpss-modules-3.10.0-957.el7.x86_64-3.8.5-1.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-957.el7.x86_64-3.8.5-1.x86_64.rpm">mpss-modules-dev-3.10.0-957.el7.x86_64-3.8.5-1.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.5-1.src.rpm">mpss-modules-3.8.5-1.src.rpm</a>
+  </li>
+</ul>
+
+<h2>MPSS 3.8.4 on CentOS 7.6</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-957.el7.x86_64-3.8.4-2.x86_64.rpm">mpss-modules-3.10.0-957.el7.x86_64-3.8.4-2.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-957.el7.x86_64-3.8.4-2.x86_64.rpm">mpss-modules-dev-3.10.0-957.el7.x86_64-3.8.4-2.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.4-2.src.rpm">mpss-modules-3.8.4-2.src.rpm</a>
+  </li>
+</ul>
+
+<h2>MPSS 3.8.4 on CentOS 7.5</h2>
+<ul>
+  <li>RPM: <a href="mpss-modules-3.10.0-862.el7.x86_64-3.8.4-2.x86_64.rpm">mpss-modules-3.10.0-862.el7.x86_64-3.8.4-2.x86_64.rpm</a>
+  </li>
+  <li>dev RPM: <a href="mpss-modules-dev-3.10.0-862.el7.x86_64-3.8.4-2.x86_64.rpm">mpss-modules-dev-3.10.0-862.el7.x86_64-3.8.4-2.x86_64.rpm</a>
+  </li>
+  <li>SRPM: <a href="mpss-modules-3.8.4-2.src.rpm">mpss-modules-3.8.4-2.src.rpm</a>
+  </li>
+</ul>
+
+<h2>Installation</h2>
+
+You can install or upgrade the <code>mpss-modules</code> file using
+
+<pre>
+  rpm -ivh https://www.nikhef.nl/~janjust/mpss/mpss-modules-3.10.0-1160.el7.x86_64-3.8.6-4.x86_64.rpm
+</pre>
+
+<b>Note</b>
+<br>
+Normally, a <code>weak-updates</code> link is created when a module is installed, e.g.
+<pre>
+  $ ls -al /lib/modules/3.10.0-862.6.3.el7.x86_64/weak-updates/
+  total 4
+  drwxr-xr-x 2 root root   20 Jul  5 16:58 .
+  drwxr-xr-x 7 root root 4096 Jul  5 16:58 ..
+  lrwxrwxrwx 1 root root   47 Jul  5 16:58 mic.ko -&gt; /lib/modules/3.10.0-862.el7.x86_64/extra/mic.ko
+</pre>
+
+This link is needed for the existing kernel to find the <code>mic.ko</code> file. If the module cannot
+be found after installing the <code>mpss-modules</code> RPM then you can simply create it yourself, or 
+re-install the kernel RPM.
+
+<hr>
+<small><a href="index.html">MPSS Main</a> |
+       MPSS CentOS 7 |
+       <a href="xeon-phi-mpss-centos8.html">MPSS CentOS 8</a> |
+       <a href="xeon-phi-mpss-ubuntu.html">MPSS Ubuntu</a>
+</small>
+</body>
+</html>
