@@ -1,0 +1,201 @@
+#!/bin/sh
+#
+# Copyright (c) 2015, Intel Corporation.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+#
+# InitRamFs script to setup card filesystem and setup for
+# load of platform modules not associated with any devices.
+#
+
+(
+PATH=/sbin:/usr/sbin:/bin:/usr/bin
+export PATH
+umask 0022
+
+#
+# Direct stdout/stderr into the printk ring
+#
+exec >/dev/kmsg 2>&1
+[ -n "$EARLYDEBUG" ] && set -x
+
+[ -d /sys ] || mkdir /sys
+[ -d /proc ] || mkdir /proc
+
+#
+# Variables on the kernel command line are passed to /init by the kernel
+# via the environment; no need to parse /proc/cmdline.  Code below creates
+# /etc/modules and configures modprobe to supply necessary module options
+# when appropriate.
+#
+[ -d /etc/modules-load.d ] || mkdir -p /etc/modules-load.d
+[ -d /etc/modprobe.d ] || mkdir -p /etc/modprobe.d
+> /etc/modules-load.d/mic-modules.conf
+> /etc/modprobe.d/mic-modules.conf
+while read module args; do
+	eval args=\"`echo $args | sed -r \
+		-e 's/(\w+)=(\s|$)/${\1:+\1=}$\1 /g' \
+		-e 's/(\w+)=(\w+)/${\2:+\1=}$\2 /g'`\"
+	echo $module $args
+	echo $module >> /etc/modules-load.d/mic-modules.conf
+	[ -n "$args" ] && echo options $module $args >> /etc/modprobe.d/mic-modules.conf
+done << "EOF"
+	michvc vcons_hdr_addr=
+	intel_micveth vnet= vnet_addr= vnet_num_buffers=
+	micscif p2p= p2p_proxy= p2p_proxy_thresh= numa_node= scif_id= scif_addr= reg_cache= ulimit= huge_page= \
+		pm_qos_cpu_dma_lat=
+	mic_virtblk virtio_addr=
+	ramoops mem_size=ramoops_size mem_address=ramoops_addr
+	micras
+EOF
+update-modules force
+
+mkdir /new_root
+mount -t proc none /proc
+
+for param in `cat /proc/cmdline`
+do
+	case "$param" in
+	root=* | \
+	ip=* | \
+	hwaddr=* | \
+	netmask=* | \
+	mtu=* )
+		eval ${param%%=*}=\"${param#*=}\"
+		;;
+	esac
+done
+
+echo "KNC init script; root=${root}"
+
+if [ "`echo $root | cut -c1-3`" = "nfs" ]; then
+	#
+	# NFS mounted root needs full networking setup.
+	#
+	# Load virtual ethernet driver, configure the
+	# network interface and mount remote file system
+	# on /new_root. Kernel command line options used:
+	#  root=nfs:<server>:<directory>
+	#  hwaddr=<card side mac addr>
+	#  netmask=<card side net mask>
+	#  mtu=<card side max frame size>
+	#  ip=<ip address | 'dhcp'>
+	#
+	nfs_server=`echo $root | cut -d: -f2`
+	nfs_dir=`echo $root | cut -d: -f3`
+
+	modprobe dma_module
+	modprobe intel_micveth
+
+	[ -n "$hwaddr" ]  && ifconfig mic0 hw ether $hwaddr
+	[ -n "$netmask" ] && ifconfig mic0 mask $netmask
+	[ -n "$mtu" ]     && ifconfig mic0 mtu $mtu
+	if [ "$ip" = "dhcp" ]
+	then
+		udhcpc -i mic0
+		ifconfig -a
+	else
+		ifconfig mic0 $ip up
+	fi
+
+	mount -t nfs $nfs_server:$nfs_dir /new_root/ -o nolock,soft,timeo=900,retrans=3 || {
+		echo "NFS mount of new root failed (exit code $?)"
+	}
+
+	[ -d /new_root/etc ] || mkdir /new_root/etc
+	[ -d /new_root/etc/modprobe.d ] || mkdir /new_root/etc/modprobe.d
+	[ -d /new_root/etc/modules-load.d ] || mkdir /new_root/etc/modules-load.d
+	cp /etc/modules /new_root/etc
+	cp /etc/modprobe.d/mic-modules.conf /new_root/etc/modprobe.d
+	cp /etc/modules-load.d/mic-modules.conf /new_root/etc/modules-load.d/mic-modules.conf
+	echo $module >> /etc/modules-load.d/mic-modules.conf
+
+	#
+	# Directory /var/run : Run-time variable data
+	#
+	# According to Filesystem Hierarchy Standard defined by Linux Fundation
+	# the directory /var/run should contains system information data describing
+	# the system since it was booted.  Files must be cleared (removed or truncated
+	# as appropriate) at the beginning of the boot process in this directory.
+	#
+	# NOTE: The directory is not clear for NFS mounted rootfs. It should be
+	# cleared now. 
+	#
+	if [ -d /new_root/var/volatile/run ]; then
+		rm -fr /new_root/var/volatile/run
+	fi
+
+	# Magic RPMs-to-install directory.
+	if which rpm &> /dev/null && [ -d /new_root/RPMs-to-install ]; then
+		rpm --root /new_root -v -i /new_root/RPMs-to-install/*.rpm \
+			&& rm -fr /new_root/RPMs-to-install
+	fi
+elif [ "`echo $root | cut -c1-8`" = "/dev/vda" ]; then
+	echo "Mounting permanent filesystem"
+	modprobe mic_virtblk
+	mount $root /new_root/
+
+	# Copy over the modprobe/modules-load files as they contain boot specific info!
+	[ -d /new_root/etc ] || mkdir /new_root/etc
+	[ -d /new_root/etc/modprobe.d ] || mkdir /new_root/etc/modprobe.d
+	[ -d /new_root/etc/modules-load.d ] || mkdir /new_root/etc/modules-load.d
+	cp /etc/modules /new_root/etc
+	cp /etc/modprobe.d/mic-modules.conf /new_root/etc/modprobe.d
+	cp /etc/modules-load.d/mic-modules.conf /new_root/etc/modules-load.d/mic-modules.conf
+	echo $module >> /etc/modules-load.d/mic-modules.conf
+
+	if [ -d /new_root/var/volatile/run ]; then
+		rm -fr /new_root/var/volatile/run
+	fi
+else
+	#
+	# Tempfs mounted root.
+	#
+	# Copy the initramfs off of rootfs and into a tmpfs instance. This is
+	# the last thing we do, rather than the first, simply because that means
+	# we're allowed to use absolute paths like /etc in the above code. Note
+	# that 'cpio' must not be Busybox's--it doesn't behave correctly.
+	#
+	mount -t tmpfs none /new_root -o mode=0755,size=85%
+	find -xdev ! -regex '\.\(/\(new_root\|RPMs-to-install\)\(/.*\)\?\)\?' \
+		| cpio -m -p /new_root
+
+	# Magic RPMs-to-install directory.
+	if which rpm &> /dev/null && [ -d /RPMs-to-install ]; then
+		rpm --root /new_root -v -i /RPMs-to-install/*.rpm \
+			|| cp -a /RPMs-to-install /new_root
+	fi
+
+	if [ -d /new_root/var/volatile/run ]; then
+		rm -fr /new_root/var/volatile/run
+	fi
+
+	mkdir /new_root/vda
+	modprobe mic_virtblk    > /new_root/stdout 2>&1
+	mount /dev/vda /new_root/vda  >> /new_root/stdout 2>&1
+
+fi
+)
+
+#
+# Switch to /new_root (discarding InitRamFs)
+#
+dmesg > /new_root/dmesg.log
+exec /sbin/switch_root /new_root /sbin/init
