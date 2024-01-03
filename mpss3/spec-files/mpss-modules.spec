@@ -12,7 +12,7 @@
 # Be sure buildpolicy set to do nothing
 %define __spec_install_post %{nil}
 %define _missing_doc_files_terminate_build 0
-%define KERNEL_VER 4.18.0-240.el8.x86_64
+%define KERNEL_VER 5.14.0-284.30.1.el9_2.x86_64
 
 BuildArch:     x86_64
 Name:          mpss-modules
@@ -92,6 +92,9 @@ rm -rf $RPM_BUILD_ROOT
 %attr(0644, root, root) "%{_prefix}/src/kernels/%{KERNEL_VER}/include/modules/scif.h"
 
 %changelog
+* Wed Jan 3 2023 Jan Jacek Tomaka <jacekt@dugeo.com> 3.8.6-6
+ - Updated to support Rocky 9.2 kernel
+
 * Mon Feb 8 2021 Jan Just Keijser <janjust@nikhef.nl> 3.8.6-5
  - Fix issue where card did not recover from shutdown
 
