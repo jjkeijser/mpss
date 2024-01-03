@@ -68,6 +68,16 @@ static void scif_mmu_notifier_invalidate_range_start(struct mmu_notifier *mn,
 static void scif_mmu_notifier_invalidate_range_end(struct mmu_notifier *mn,
 				     struct mm_struct *mm,
 				     unsigned long start, unsigned long end);
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
+static int scif_mmu_notifier_invalidate_range_start_range(struct mmu_notifier *mn, const struct mmu_notifier_range *range) {
+       scif_mmu_notifier_invalidate_range_start(mn, range->mm, range->start, range->end);
+       return 0;
+}
+static void scif_mmu_notifier_invalidate_range_end_range(struct mmu_notifier *mn, const struct mmu_notifier_range *range) {
+       scif_mmu_notifier_invalidate_range_end(mn, range->mm, range->start, range->end);
+}
+#endif
+
 static const struct mmu_notifier_ops scif_mmu_notifier_ops = {
 	.release = scif_mmu_notifier_release,
 	.clear_flush_young = NULL,
@@ -80,8 +90,14 @@ static const struct mmu_notifier_ops scif_mmu_notifier_ops = {
 	.test_young = NULL,
 	.invalidate_range = NULL,
 #endif
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0)
+        .invalidate_range_start = scif_mmu_notifier_invalidate_range_start_range,
+        .invalidate_range_end = scif_mmu_notifier_invalidate_range_end_range
+#else
 	.invalidate_range_start = scif_mmu_notifier_invalidate_range_start,
-	.invalidate_range_end = scif_mmu_notifier_invalidate_range_end};
+	.invalidate_range_end = scif_mmu_notifier_invalidate_range_end
+#endif
+};
 
 static void scif_mmu_notifier_release(struct mmu_notifier *mn,
 			struct mm_struct *mm)
@@ -982,8 +998,8 @@ int micscif_unregister_window(struct reg_range_t *window)
 	{
 		window->unreg_state = OP_IN_PROGRESS;
 		send_msg = true;
-		/* fall through */
 	}
+	FALLTHROUGH;
 	case OP_IN_PROGRESS:
 	{
 		get_window_ref_count(window, 1);

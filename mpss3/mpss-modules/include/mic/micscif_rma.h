@@ -916,11 +916,19 @@ static inline int __scif_dec_pinned_vm_lock(struct mm_struct *mm,
 {
 	if (mm && nr_pages && mic_ulimit_check) {
 		if (try_lock) {
+#ifndef MMAP_LOCK_INITIALIZER
 			if (!down_write_trylock(&mm->mmap_sem)) {
+#else
+                        if (!mmap_write_trylock(mm)) {
+#endif
 				return -1;
 			}
 		} else {
+#ifndef MMAP_LOCK_INITIALIZER
 			down_write(&mm->mmap_sem);
+#else
+                        mmap_write_lock(mm);
+#endif
 		}
 #if (defined(RHEL_RELEASE_CODE) && (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)))
 		mm->pinned_vm.counter -= nr_pages;
@@ -929,7 +937,11 @@ static inline int __scif_dec_pinned_vm_lock(struct mm_struct *mm,
 #else
 		mm->locked_vm -= nr_pages;
 #endif
+#ifndef MMAP_LOCK_INITIALIZER
 		up_write(&mm->mmap_sem);
+#else
+                mmap_write_unlock(mm);
+#endif
 	}
 	return 0;
 }

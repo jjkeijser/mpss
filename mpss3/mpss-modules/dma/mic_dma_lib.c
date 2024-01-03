@@ -64,7 +64,6 @@
 #include <mic/micsboxdefine.h>
 
 MODULE_LICENSE("GPL");
-
 #ifdef MIC_IS_EMULATION
 #define DMA_TO		(INT_MAX)
 #define DMA_FENCE_TIMEOUT_CNT (INT_MAX)
@@ -1403,7 +1402,11 @@ mic_dma_proc_ring_show(struct seq_file *m, void *data)
 static int
 mic_dma_proc_ring_open(struct inode *inode, struct file *file)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+        return single_open(file, mic_dma_proc_ring_show, pde_data(inode));
+#else
 	return single_open(file, mic_dma_proc_ring_show, PDE_DATA(inode));
+#endif
 }
 
 static int
@@ -1496,6 +1499,7 @@ mic_dma_proc_reg_show(struct seq_file *m, void *data)
 				seq_printf(m," {Type: NOP, 0x%#llx"
 					" %#llx} ",  desc.qwords.qw0,
 						   desc.qwords.qw1);
+                                break; //is it ok?
 			case MEMCOPY:
 				seq_printf(m," {Type: MEMCOPY, SAP:"
 					" 0x%#llx, DAP: %#llx, length: %#llx} ",
@@ -1555,21 +1559,39 @@ mic_dma_proc_reg_show(struct seq_file *m, void *data)
 static int
 mic_dma_proc_reg_open(struct inode *inode, struct file *file)
 {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+        return single_open(file, mic_dma_proc_reg_show, pde_data(inode));
+#else
 	return single_open(file, mic_dma_proc_reg_show, PDE_DATA(inode));
+#endif
 }
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+struct proc_ops micdma_ring_fops = {
+        .proc_open           = mic_dma_proc_ring_open,
+        .proc_read           = seq_read,
+        .proc_lseek         = seq_lseek,
+        .proc_release        = single_release,
+#else
 struct file_operations micdma_ring_fops = {
 	.open		= mic_dma_proc_ring_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
         .release 	= single_release,
+#endif
 };
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+struct proc_ops micdma_reg_fops = {
+        .proc_open           = mic_dma_proc_reg_open, 
+        .proc_read           = seq_read,
+        .proc_lseek         = seq_lseek,
+        .proc_release        = single_release,
+#else
 struct file_operations micdma_reg_fops = {
 	.open		= mic_dma_proc_reg_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
         .release 	= single_release,
+#endif
 };
 
 static void
