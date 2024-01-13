@@ -1531,22 +1531,22 @@ void micscif_watchdog_handler(struct work_struct *work)
 	mic_ctx = get_per_dev_ctx(i - 1);
 
 	switch (mic_ctx->sdbic1) {
-	case SYSTEM_HALT:
-	case SYSTEM_POWER_OFF:
+	case MIC_SYSTEM_HALT:
+	case MIC_SYSTEM_POWER_OFF:
 	{
 		adapter_stop_device(mic_ctx, 1, !RESET_REATTEMPT);
 		wait_for_reset(mic_ctx);
 		mic_ctx->sdbic1 = 0;
 		break;
 	}
-	case SYSTEM_RESTART:
+	case MIC_SYSTEM_RESTART:
 	{
 		mic_setstate(mic_ctx, MIC_LOST);
 		mic_ctx->sdbic1 = 0;
 		break;
 	}
-	case SYSTEM_BOOTING:
-	case SYSTEM_RUNNING:
+	case MIC_SYSTEM_BOOTING:
+	case MIC_SYSTEM_RUNNING:
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,10,0))
 	case SYSTEM_SUSPEND_DISK:
 #endif

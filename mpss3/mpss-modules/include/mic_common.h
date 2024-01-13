@@ -87,6 +87,12 @@ extern "C" {
 #include <mic/micveth_common.h>
 #include <mic/micscif_nm.h>
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+    #define FALLTHROUGH __attribute__ ((__fallthrough__));
+#else
+    #define FALLTHROUGH
+#endif
+
 #define GET_MAX(a, b)	( ((a) > (b)) ? (a) : (b) )
 #define GET_MIN(a, b)	( ((a) < (b)) ? (a) : (b) )
 
@@ -273,6 +279,17 @@ typedef enum mic_status
 	MIC_RESETFAIL,
 	MIC_INVALID
 } MIC_STATUS;
+
+/* Values used for Mic system states.
+   Note that these states *differ* from the Linux kernel 4+ system states
+ */
+typedef enum mic_system_states {
+    MIC_SYSTEM_BOOTING,
+    MIC_SYSTEM_RUNNING,
+    MIC_SYSTEM_HALT,
+    MIC_SYSTEM_POWER_OFF,
+    MIC_SYSTEM_RESTART,
+} MIC_SYSTEM_STATE;
 
 typedef enum _product_platform_t
 {

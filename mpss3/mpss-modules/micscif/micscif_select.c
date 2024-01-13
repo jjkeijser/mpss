@@ -53,6 +53,7 @@
 #ifndef set_mb
 #define set_mb(var, value)  do { (var) = (value); mb(); } while (0)
 #endif
+#include "micscif_time.h"
 
 struct poll_table_page {
 	struct poll_table_page *next;
@@ -74,7 +75,7 @@ struct poll_table_page {
 
 #define MAX_SLACK	(100 * NSEC_PER_MSEC)
 
-static long __estimate_accuracy(struct timespec *tv)
+static long __estimate_accuracy(TIMESPEC *tv)
 {
 	long slack;
 	int divfactor = 1000;
@@ -97,10 +98,10 @@ static long __estimate_accuracy(struct timespec *tv)
 	return slack;
 }
 
-static long estimate_accuracy(struct timespec *tv)
+static long estimate_accuracy(TIMESPEC *tv)
 {
 	unsigned long ret;
-	struct timespec now;
+	TIMESPEC now;
 
 	/*
 	 * Realtime tasks get a slack of 0 for obvious reasons.
@@ -109,8 +110,8 @@ static long estimate_accuracy(struct timespec *tv)
 	if (rt_task(current))
 		return 0;
 
-	ktime_get_ts(&now);
-	now = timespec_sub(*tv, now);
+        KTIME_GET_TS(&now);
+	now = TIMESPEC_SUB(*tv, now);
 	ret = __estimate_accuracy(&now);
 	if (ret < current->timer_slack_ns)
 		return current->timer_slack_ns;
@@ -327,7 +328,7 @@ static inline unsigned int do_pollfd(struct scif_pollepd *pollfd, poll_table *pw
 }
 
 static int do_poll(unsigned int nfds,  struct scif_pollepd *ufds,
-		   struct poll_wqueues *wait, struct timespec *end_time)
+		   struct poll_wqueues *wait, TIMESPEC *end_time)
 {
 	poll_table* pt = &wait->pt;
 	ktime_t expire, *to = NULL;
@@ -376,7 +377,7 @@ static int do_poll(unsigned int nfds,  struct scif_pollepd *ufds,
 		 * pointer to the expiry value.
 		 */
 		if (end_time && !to) {
-			expire = timespec_to_ktime(*end_time);
+			expire = TIMESPEC_TO_KTIME(*end_time);
 			to = &expire;
 		}
 
@@ -387,7 +388,7 @@ static int do_poll(unsigned int nfds,  struct scif_pollepd *ufds,
 }
 
 static int do_scif_poll(struct scif_pollepd *ufds, unsigned int nfds,
-		struct timespec *end_time)
+		TIMESPEC *end_time)
 {
 	struct poll_wqueues table;
  	int epdcount;
@@ -403,16 +404,16 @@ static int do_scif_poll(struct scif_pollepd *ufds, unsigned int nfds,
  * Add two timespec values and do a safety check for overflow.
  * It's assumed that both values are valid (>= 0)
  */
-static struct timespec scif_timespec_add_safe(const struct timespec lhs,
-				  const struct timespec rhs)
+static TIMESPEC scif_timespec_add_safe(const TIMESPEC lhs,
+				  const TIMESPEC rhs)
 {
-	struct timespec res;
+	TIMESPEC res;
 
-	set_normalized_timespec(&res, lhs.tv_sec + rhs.tv_sec,
+	SET_NORMALIZED_TIMESPEC(&res, lhs.tv_sec + rhs.tv_sec,
 				lhs.tv_nsec + rhs.tv_nsec);
 
 	if (res.tv_sec < lhs.tv_sec || res.tv_sec < rhs.tv_sec)
-		res.tv_sec = TIME_T_MAX;
+		res.tv_sec = TIMESPEC_MAX;
 
 	return res;
 }
@@ -427,18 +428,18 @@ static struct timespec scif_timespec_add_safe(const struct timespec lhs,
  *
  * Returns -EINVAL if sec/nsec are not normalized. Otherwise 0.
  */
-static int scif_poll_select_set_timeout(struct timespec *to, long sec, long nsec)
+static int scif_poll_select_set_timeout(TIMESPEC *to, long sec, long nsec)
 {
-	struct timespec ts = {.tv_sec = sec, .tv_nsec = nsec};
+	TIMESPEC ts = {.tv_sec = sec, .tv_nsec = nsec};
 
-	if (!timespec_valid(&ts))
+	if (!TIMESPEC_VALID(&ts))
 		return -EINVAL;
 
 	/* Optimize for the zero timeout value here */
 	if (!sec && !nsec) {
 		to->tv_sec = to->tv_nsec = 0;
 	} else {
-		ktime_get_ts(to);
+		KTIME_GET_TS(to);
 		*to = scif_timespec_add_safe(*to, ts);
 	}
 	return 0;
@@ -446,7 +447,7 @@ static int scif_poll_select_set_timeout(struct timespec *to, long sec, long nsec
 
 int scif_poll(struct scif_pollepd *ufds, unsigned int nfds, long timeout_msecs)
 {
-	struct timespec end_time, *to = NULL;
+	TIMESPEC end_time, *to = NULL;
 	if (timeout_msecs >= 0) {
 		to = &end_time;
 		scif_poll_select_set_timeout(to, timeout_msecs / MSEC_PER_SEC,

@@ -100,7 +100,7 @@ micscif_inc_node_refcnt(struct micscif_dev *dev, long cnt)
 			SCIFDEV_INIT == dev->sd_state)
 			goto bail_out;
 		if (test_bit(SCIF_NODE_MAGIC_BIT, 
-			&dev->scif_ref_cnt.counter)) {
+			(unsigned long *)&dev->scif_ref_cnt.counter)) {
 			/* Notify host that the remote node must be woken */
 			struct nodemsg notif_msg;
 
@@ -126,7 +126,7 @@ micscif_inc_node_refcnt(struct micscif_dev *dev, long cnt)
 			if (dev->sd_wait_status == OP_COMPLETED) {
 				dev->sd_state = SCIFDEV_RUNNING;
 				clear_bit(SCIF_NODE_MAGIC_BIT, 
-					&dev->scif_ref_cnt.counter);
+					(unsigned long *)&dev->scif_ref_cnt.counter);
 			}
 		}
 		/* The ref count was not added if the node was idle. */

@@ -167,6 +167,7 @@ __scif_close(scif_epd_t epd)
 	switch (oldstate) {
 	case SCIFEP_ZOMBIE:
 		BUG_ON(SCIFEP_ZOMBIE == oldstate);
+		FALLTHROUGH;
 	case SCIFEP_CLOSED:
 	case SCIFEP_DISCONNECTED:
 		spin_unlock_irqrestore(&ep->lock, sflags);
@@ -597,6 +598,7 @@ __scif_listen(scif_epd_t epd, int backlog)
 	switch (ep->state) {
 	case SCIFEP_ZOMBIE:
 		BUG_ON(SCIFEP_ZOMBIE == ep->state);
+		FALLTHROUGH;
 	case SCIFEP_CLOSED:
 	case SCIFEP_CLOSING:
 	case SCIFEP_CLLISTEN:
@@ -902,7 +904,7 @@ __scif_connect(scif_epd_t epd, struct scif_portID *dst, bool non_block)
 	switch (ep->state) {
 	case SCIFEP_ZOMBIE:
 		BUG_ON(SCIFEP_ZOMBIE == ep->state);
-
+		FALLTHROUGH;
 	case SCIFEP_CLOSED:
 	case SCIFEP_CLOSING:
 		err = -EINVAL;
@@ -942,7 +944,7 @@ __scif_connect(scif_epd_t epd, struct scif_portID *dst, bool non_block)
 			ep->port.node = ms_info.mi_nodeid;
 			ep->conn_async_state = ASYNC_CONN_IDLE;
 		}
-		/* Fall through */
+		FALLTHROUGH;
 	case SCIFEP_BOUND:
 		/*
 		 * If a non-blocking connect has been already initiated (conn_async_state
@@ -1971,11 +1973,19 @@ __scif_pin_pages(void *addr, size_t len, int *out_prot,
 		prot |= SCIF_PROT_WRITE;
 retry:
 		mm = current->mm;
+#ifndef MMAP_LOCK_INITIALIZER
 		down_write(&mm->mmap_sem);
+#else
+                mmap_write_lock(mm);
+#endif
 		if (ulimit) {
 			err = __scif_check_inc_pinned_vm(mm, nr_pages);
 			if (err) {
+#ifndef MMAP_LOCK_INITIALIZER
 				up_write(&mm->mmap_sem);
+#else
+                                mmap_write_unlock(mm);
+#endif
 				pinned_pages->nr_pages = 0;
 				goto error_unmap;
 			}
@@ -1984,7 +1994,9 @@ retry:
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(4,14,0)
 		pinned_pages->nr_pages = get_user_pages_remote(
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5,14,0)
 				current,
+#endif
 				mm,
 				(uint64_t)addr,
 				nr_pages,
@@ -2003,7 +2015,11 @@ retry:
 				pinned_pages->pages,
 				pinned_pages->vma);
 #endif
+#ifndef MMAP_LOCK_INITIALIZER
 		up_write(&mm->mmap_sem);
+#else
+                mmap_write_unlock(mm);
+#endif
 		if (nr_pages == pinned_pages->nr_pages) {
 #ifdef RMA_DEBUG
 			atomic_long_add_return(nr_pages, &ms_info.rma_pin_cnt);

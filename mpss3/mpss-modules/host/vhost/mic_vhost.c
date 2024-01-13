@@ -403,7 +403,9 @@ int vhost_init_used(struct vhost_virtqueue *vq)
 	return 0;
 }
 #endif
-
+#ifndef read_barrier_depends
+#define read_barrier_depends() do { } while (0)
+#endif
 /* Each buffer in the virtqueues is actually a chain of descriptors.  This
  * function returns the next descriptor in the chain,
  * or -1U if we're at the end. */

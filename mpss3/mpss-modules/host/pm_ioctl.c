@@ -439,7 +439,7 @@ micpm_dbg_init(mic_ctx_t *mic_ctx)
 {
 	/* directory name will be in format micpmXXXXX
 	 * so assuming the name string wont excceed 12 characters */
-	const uint32_t DBG_DIRNAME_LENGTH = 12;
+	#define  DBG_DIRNAME_LENGTH 12
 	char pmdbg_dir_name[DBG_DIRNAME_LENGTH];
 	micpm_ctx_t *micpm_ctx = &mic_ctx->micpm_ctx;
 	struct dentry *mmiodir;

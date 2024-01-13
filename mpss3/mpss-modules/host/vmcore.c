@@ -227,7 +227,11 @@ static ssize_t read_vmcore(struct file *file, char __user *buffer,
 	struct vmcore *curr_m = NULL;
 	struct inode *inode = file->f_path.dentry->d_inode;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,10,0))
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+        mic_ctx_t *mic_ctx = pde_data(inode);
+#else
 	mic_ctx_t *mic_ctx = PDE_DATA(inode);
+#endif
 #else
 	struct proc_dir_entry *entry = PDE(inode);
 	mic_ctx_t *mic_ctx = entry->data;
@@ -292,10 +296,15 @@ static ssize_t read_vmcore(struct file *file, char __user *buffer,
 	}
 	return acc;
 }
-
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,14,0))
+static const struct proc_ops proc_vmcore_operations = {
+        .proc_read           = read_vmcore,
+};
+#else
 static const struct file_operations proc_vmcore_operations = {
 	.read		= read_vmcore,
 };
+#endif
 
 static struct vmcore* get_new_element(void)
 {
